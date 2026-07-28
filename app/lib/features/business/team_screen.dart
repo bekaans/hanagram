@@ -16,7 +16,7 @@ class TeamScreen extends StatefulWidget {
 }
 
 class _TeamScreenState extends State<TeamScreen> {
-  List<TeamItem> _teams = sampleTeams();
+  late final List<TeamItem> _teams = sampleTeams();
 
   void _createTeam(String name) {
     setState(() {
