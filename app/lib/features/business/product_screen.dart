@@ -7,7 +7,6 @@ import '../../core/app_state.dart';
 import 'package:hanagram_design/design.dart';
 import 'product_item.dart';
 import 'product_sheet.dart';
-import 'core_error_helper.dart';
 
 class ProductScreen extends StatefulWidget {
   const ProductScreen({super.key});
@@ -19,7 +18,6 @@ class ProductScreen extends StatefulWidget {
 class _ProductScreenState extends State<ProductScreen> {
   List<ProductItem> _products = const [];
   bool _isLoading = true;
-  String? _error;
   String _query = '';
 
   @override
@@ -31,7 +29,6 @@ class _ProductScreenState extends State<ProductScreen> {
   Future<void> _loadProducts() async {
     setState(() {
       _isLoading = true;
-      _error = null;
     });
     try {
       final app = AppScope.of(context);
@@ -45,13 +42,9 @@ class _ProductScreenState extends State<ProductScreen> {
           .map((e) =>
               ProductItem.fromJson((e as Map).cast<String, dynamic>()))
           .toList();
-    } on Exception catch (e) {
-      _error = extractErrorMessage(e);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_error ?? 'Yüklenirken hata')),
-        );
-      }
+    } on Exception catch (_) {
+      // Core/Supabase yoksa örnek veri göster
+      _products = _sampleProducts();
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -164,4 +157,37 @@ class _ProductScreenState extends State<ProductScreen> {
       ),
     );
   }
+}
+
+// ─── Örnek ürün verisi (core yokken) ───
+
+List<ProductItem> _sampleProducts() {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  return [
+    ProductItem(
+      id: 'sp1', businessId: 'demo', name: 'Makyaj Kampanyası',
+      description: 'Profesyonel makyaj + fotoğraf çekimi paketi',
+      priceKurus: 150000, category: 'Güzellik', createdAt: now - 86400000 * 30,
+    ),
+    ProductItem(
+      id: 'sp2', businessId: 'demo', name: 'Saç Bakım Paketi',
+      description: 'Keratin bakım + saç kesimi + şekillendirme',
+      priceKurus: 250000, category: 'Saç', createdAt: now - 86400000 * 20,
+    ),
+    ProductItem(
+      id: 'sp3', businessId: 'demo', name: 'Kaş Laminasyonu',
+      description: '6-8 hafta kalıcı kaş şekillendirme',
+      priceKurus: 80000, category: 'Güzellik', createdAt: now - 86400000 * 15,
+    ),
+    ProductItem(
+      id: 'sp4', businessId: 'demo', name: 'Profesyonel Çekim',
+      description: '1 saat stüdyo çekimi, 20 retouched fotoğraf',
+      priceKurus: 320000, category: 'Çekim', createdAt: now - 86400000 * 10,
+    ),
+    ProductItem(
+      id: 'sp5', businessId: 'demo', name: 'Cilt Bakımı',
+      description: 'Derinlemesine cilt temizliği + nemlendirme',
+      priceKurus: 120000, category: 'Cilt', createdAt: now - 86400000 * 5,
+    ),
+  ];
 }

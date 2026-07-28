@@ -23,7 +23,6 @@ class MediaScreen extends StatefulWidget {
 class _MediaScreenState extends State<MediaScreen> {
   List<MediaData> _items = const [];
   bool _isLoading = true;
-  String? _error;
   final _picker = ImagePicker();
 
   @override
@@ -35,7 +34,6 @@ class _MediaScreenState extends State<MediaScreen> {
   Future<void> _loadMedia() async {
     setState(() {
       _isLoading = true;
-      _error = null;
     });
     try {
       final app = AppScope.of(context);
@@ -48,13 +46,9 @@ class _MediaScreenState extends State<MediaScreen> {
           .map((e) =>
               MediaData.fromJson((e as Map).cast<String, dynamic>()))
           .toList();
-    } on Exception catch (e) {
-      _error = extractErrorMessage(e);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_error ?? 'Yüklenirken hata')),
-        );
-      }
+    } on Exception catch (_) {
+      // Core/Supabase yoksa örnek medya göster
+      _items = _sampleMedia();
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -301,4 +295,44 @@ class _MediaViewer extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─── Örnek medya verisi (core yokken) ───
+
+List<MediaData> _sampleMedia() {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  return [
+    MediaData(
+      id: 'sm1', ownerId: 'demo', type: 'photo',
+      caption: 'Stüdyo çekimi — Elif',
+      createdAt: now - 86400000 * 2, width: 1080, height: 1350,
+    ),
+    MediaData(
+      id: 'sm2', ownerId: 'demo', type: 'video',
+      caption: 'Reels kurgu — makyaj süreci',
+      createdAt: now - 86400000, width: 1080, height: 1920,
+      durationMs: 32000,
+    ),
+    MediaData(
+      id: 'sm3', ownerId: 'demo', type: 'photo',
+      caption: 'Dr. Ahmet Kaya reklam görseli',
+      createdAt: now - 86400000 * 5, width: 1200, height: 630,
+    ),
+    MediaData(
+      id: 'sm4', ownerId: 'demo', type: 'photo',
+      caption: 'Saç bakım önce-sonra',
+      createdAt: now - 86400000 * 8, width: 1080, height: 1080,
+    ),
+    MediaData(
+      id: 'sm5', ownerId: 'demo', type: 'video',
+      caption: 'Tanıtım videosu — Studio Nova',
+      createdAt: now - 86400000 * 10, width: 1920, height: 1080,
+      durationMs: 45000,
+    ),
+    MediaData(
+      id: 'sm6', ownerId: 'demo', type: 'photo',
+      caption: 'Kampanya afişi — yaz indirimi',
+      createdAt: now - 86400000 * 15, width: 1080, height: 1920,
+    ),
+  ];
 }

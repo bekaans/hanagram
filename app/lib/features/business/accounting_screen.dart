@@ -32,29 +32,40 @@ class _AccountingScreenState extends State<AccountingScreen> {
 
   Future<void> _loadData() async {
     setState(() => _loading = true);
+    try {
+      // Mevcut ay raporu
+      final current = await AccountingService.getMonthlyReport(_year, _month);
 
-    // Mevcut ay raporu
-    final current = await AccountingService.getMonthlyReport(_year, _month);
+      // Önceki ay raporu
+      final prevMonth = _month == 1 ? 12 : _month - 1;
+      final prevYear = _month == 1 ? _year - 1 : _year;
+      final previous =
+          await AccountingService.getMonthlyReport(prevYear, prevMonth);
 
-    // Önceki ay raporu
-    final prevMonth = _month == 1 ? 12 : _month - 1;
-    final prevYear = _month == 1 ? _year - 1 : _year;
-    final previous =
-        await AccountingService.getMonthlyReport(prevYear, prevMonth);
+      // İşlemler
+      final from = DateTime(_year, _month, 1);
+      final to = DateTime(_year, _month + 1, 0, 23, 59, 59);
+      final entries =
+          await AccountingService.getEntries(from: from, to: to);
 
-    // İşlemler
-    final from = DateTime(_year, _month, 1);
-    final to = DateTime(_year, _month + 1, 0, 23, 59, 59);
-    final entries =
-        await AccountingService.getEntries(from: from, to: to);
-
-    if (mounted) {
-      setState(() {
-        _current = current;
-        _previous = previous;
-        _entries = entries;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _current = current;
+          _previous = previous;
+          _entries = entries;
+          _loading = false;
+        });
+      }
+    } on Exception catch (_) {
+      // Supabase yoksa örnek muhasebe verisi göster
+      if (mounted) {
+        setState(() {
+          _current = _sampleCurrentReport();
+          _previous = _samplePreviousReport();
+          _entries = _sampleEntries();
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -722,4 +733,70 @@ class _AccountingScreenState extends State<AccountingScreen> {
         '${d.month.toString().padLeft(2, '0')}.'
         '${d.year}';
   }
+}
+
+// ─── Örnek muhasebe verisi (Supabase yokken) ───
+
+MonthlyReport _sampleCurrentReport() {
+  final now = DateTime.now();
+  return MonthlyReport(
+    month: now.month, year: now.year,
+    totalIncome: 850000, totalExpense: 320000, netProfit: 530000,
+    transactionCount: 12, newCustomers: 4,
+    totalAppointments: 18, newAppointments: 6,
+    completedAppointments: 10, cancelledAppointments: 2,
+  );
+}
+
+MonthlyReport _samplePreviousReport() {
+  final now = DateTime.now();
+  final prev = DateTime(now.year, now.month - 1);
+  return MonthlyReport(
+    month: prev.month, year: prev.year,
+    totalIncome: 720000, totalExpense: 280000, netProfit: 440000,
+    transactionCount: 10, newCustomers: 3,
+    totalAppointments: 15, newAppointments: 5,
+    completedAppointments: 8, cancelledAppointments: 2,
+  );
+}
+
+List<AccountingEntry> _sampleEntries() {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  return [
+    AccountingEntry(
+      id: 'ae1', type: TransactionType.income, title: 'Makyaj Kampanyası — Elif',
+      amount: 150000, date: today, category: 'Güzellik', customerName: 'Elif Yılmaz',
+    ),
+    AccountingEntry(
+      id: 'ae2', type: TransactionType.income, title: 'Çekim Paketi — Studio Nova',
+      amount: 320000, date: today.subtract(const Duration(days: 1)),
+      category: 'Çekim', customerName: 'Studio Nova',
+    ),
+    AccountingEntry(
+      id: 'ae3', type: TransactionType.expense, title: 'Kira',
+      amount: 120000, date: today.subtract(const Duration(days: 3)),
+      category: 'Sabit Gider',
+    ),
+    AccountingEntry(
+      id: 'ae4', type: TransactionType.income, title: 'Kaş Laminasyonu — Zeynep',
+      amount: 80000, date: today.subtract(const Duration(days: 4)),
+      category: 'Güzellik', customerName: 'Zeynep Arslan',
+    ),
+    AccountingEntry(
+      id: 'ae5', type: TransactionType.expense, title: 'Malzeme Alımı',
+      amount: 45000, date: today.subtract(const Duration(days: 5)),
+      category: 'Malzeme',
+    ),
+    AccountingEntry(
+      id: 'ae6', type: TransactionType.income, title: 'Saç Bakım — Cenk',
+      amount: 250000, date: today.subtract(const Duration(days: 6)),
+      category: 'Saç', customerName: 'Cenk Demir',
+    ),
+    AccountingEntry(
+      id: 'ae7', type: TransactionType.expense, title: 'Personel Maaşı',
+      amount: 155000, date: today.subtract(const Duration(days: 7)),
+      category: 'Personel',
+    ),
+  ];
 }

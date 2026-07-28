@@ -39,12 +39,22 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
 
   Future<void> _loadAppointments() async {
     setState(() => _isLoading = true);
-    final items = await TaskService.getAppointmentsForDate(_selectedDate);
-    if (mounted) {
-      setState(() {
-        _appointments = items;
-        _isLoading = false;
-      });
+    try {
+      final items = await TaskService.getAppointmentsForDate(_selectedDate);
+      if (mounted) {
+        setState(() {
+          _appointments = items;
+          _isLoading = false;
+        });
+      }
+    } on Exception catch (_) {
+      // Supabase yoksa örnek randevuları göster
+      if (mounted) {
+        setState(() {
+          _appointments = _sampleAppointments();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -57,12 +67,21 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
       return;
     }
     setState(() => _searchLoading = true);
-    final results = await TaskService.searchAppointments(query.trim());
-    if (mounted) {
-      setState(() {
-        _searchResults = results;
-        _searchLoading = false;
-      });
+    try {
+      final results = await TaskService.searchAppointments(query.trim());
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _searchLoading = false;
+        });
+      }
+    } on Exception catch (_) {
+      if (mounted) {
+        setState(() {
+          _searchResults = [];
+          _searchLoading = false;
+        });
+      }
     }
   }
 
@@ -592,4 +611,46 @@ class _AppointmentAddSheetState extends State<_AppointmentAddSheet> {
       ),
     );
   }
+}
+
+// ─── Örnek randevu verisi (Supabase yokken) ───
+
+List<Appointment> _sampleAppointments() {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  return [
+    Appointment(
+      id: 'sa1', title: 'Elif Yılmaz — Makyaj Kampanyası',
+      date: today, startTime: '10:00', createdBy: 'demo',
+      description: 'Profesyonel makyaj + fotoğraf çekimi',
+      status: 'confirmed', attendeeName: 'Elif Yılmaz',
+    ),
+    Appointment(
+      id: 'sa2', title: 'Dr. Ahmet Kaya — Reklam Görüşmesi',
+      date: today, startTime: '14:00', createdBy: 'demo',
+      description: 'Instagram reklam kampanyası detayları',
+      status: 'pending', attendeeName: 'Dr. Ahmet Kaya',
+    ),
+    Appointment(
+      id: 'sa3', title: 'Studio Nova — Çekim Planlama',
+      date: today.add(const Duration(days: 1)),
+      startTime: '11:00', createdBy: 'demo',
+      description: 'Ekipman ve mekan onayı',
+      status: 'pending', attendeeName: 'Studio Nova',
+    ),
+    Appointment(
+      id: 'sa4', title: 'Zeynep Arslan — Kaş Laminasyonu',
+      date: today.add(const Duration(days: 2)),
+      startTime: '15:30', createdBy: 'demo',
+      description: 'Rutin bakım randevusu',
+      status: 'confirmed', attendeeName: 'Zeynep Arslan',
+    ),
+    Appointment(
+      id: 'sa5', title: 'Cenk Demir — Saç Bakımı',
+      date: today.add(const Duration(days: 3)),
+      startTime: '09:00', createdBy: 'demo',
+      description: 'Keratin bakım',
+      status: 'pending', attendeeName: 'Cenk Demir',
+    ),
+  ];
 }

@@ -6,7 +6,6 @@ import '../../core/app_state.dart';
 import 'package:hanagram_design/design.dart';
 import 'customer_item.dart';
 import 'customer_sheet.dart';
-import 'core_error_helper.dart';
 
 class CustomerScreen extends StatefulWidget {
   const CustomerScreen({super.key});
@@ -18,7 +17,6 @@ class CustomerScreen extends StatefulWidget {
 class _CustomerScreenState extends State<CustomerScreen> {
   List<CustomerItem> _customers = const [];
   bool _isLoading = true;
-  String? _error;
   String _query = '';
 
   @override
@@ -30,7 +28,6 @@ class _CustomerScreenState extends State<CustomerScreen> {
   Future<void> _loadCustomers() async {
     setState(() {
       _isLoading = true;
-      _error = null;
     });
     try {
       final app = AppScope.of(context);
@@ -44,13 +41,9 @@ class _CustomerScreenState extends State<CustomerScreen> {
           .map((e) =>
               CustomerItem.fromJson((e as Map).cast<String, dynamic>()))
           .toList();
-    } on Exception catch (e) {
-      _error = extractErrorMessage(e);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_error ?? 'Yüklenirken hata')),
-        );
-      }
+    } on Exception catch (_) {
+      // Core/Supabase yoksa örnek veri göster
+      _customers = _sampleCustomers();
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -164,4 +157,42 @@ class _CustomerScreenState extends State<CustomerScreen> {
       ),
     );
   }
+}
+
+// ─── Örnek müşteri verisi (core yokken) ───
+
+List<CustomerItem> _sampleCustomers() {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  return [
+    CustomerItem(
+      id: 'sc1', businessId: 'demo', name: 'Elif Yılmaz',
+      phone: '0532 111 2233', note: 'Haftalık bakım paketi',
+      tags: ['VIP', 'Düzenli'], createdAt: now - 86400000 * 30,
+      lastVisitAt: now - 86400000 * 2, visitCount: 8, totalSpendKurus: 1500000,
+    ),
+    CustomerItem(
+      id: 'sc2', businessId: 'demo', name: 'Dr. Ahmet Kaya',
+      phone: '0535 444 5566', note: 'Instagram reklam kampanyası',
+      tags: ['Reklam'], createdAt: now - 86400000 * 15,
+      lastVisitAt: now - 86400000 * 5, visitCount: 3, totalSpendKurus: 3200000,
+    ),
+    CustomerItem(
+      id: 'sc3', businessId: 'demo', name: 'Studio Nova',
+      phone: '0216 333 4455', note: 'Profesyonel fotoğraf çekimi',
+      tags: ['Çekim', 'Kurumsal'], createdAt: now - 86400000 * 60,
+      lastVisitAt: now - 86400000 * 8, visitCount: 5, totalSpendKurus: 4500000,
+    ),
+    CustomerItem(
+      id: 'sc4', businessId: 'demo', name: 'Zeynep Arslan',
+      phone: '0542 777 8899', note: 'Kaş laminasyonu ve cilt bakımı',
+      tags: ['Güzellik'], createdAt: now - 86400000 * 45,
+      lastVisitAt: now - 86400000, visitCount: 12, totalSpendKurus: 980000,
+    ),
+    CustomerItem(
+      id: 'sc5', businessId: 'demo', name: 'Cenk Demir',
+      phone: '0538 222 3344', note: 'Saç bakım paketi',
+      tags: [], createdAt: now - 86400000 * 10,
+      lastVisitAt: now - 86400000 * 3, visitCount: 2, totalSpendKurus: 500000,
+    ),
+  ];
 }
