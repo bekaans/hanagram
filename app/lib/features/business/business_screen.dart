@@ -15,6 +15,10 @@ import 'media_screen.dart';
 import 'sale_screen.dart';
 import 'task_screen.dart';
 import 'accounting_screen.dart';
+import 'finance_screen.dart';
+import 'reviews_screen.dart';
+import 'portfolio_screen.dart';
+import 'team_screen.dart';
 import 'packages_screen.dart';
 import 'referral_screen.dart';
 
@@ -90,6 +94,15 @@ class BusinessScreen extends StatelessWidget {
             ),
           ),
           _Tool(
+            icon: CupertinoIcons.person_3,
+            title: 'Ekip',
+            desc: 'Ekip kur, üyeleri davet et, görev paylaş',
+            ready: true,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TeamScreen()),
+            ),
+          ),
+          _Tool(
             icon: CupertinoIcons.calendar,
             title: 'Takvim',
             desc: 'Günlük görev ve randevu görünümü',
@@ -155,12 +168,39 @@ class BusinessScreen extends StatelessWidget {
             ),
           ),
           _Tool(
+            icon: CupertinoIcons.chart_bar,
+            title: 'Finans',
+            desc: 'Hızlı gelir/gider ekleme, net kâr takibi',
+            ready: true,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const FinanceScreen()),
+            ),
+          ),
+          _Tool(
             icon: CupertinoIcons.photo_camera,
             title: 'Medya galerisi',
             desc: 'Fotoğraf ve video yönetimi',
             ready: true,
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const MediaScreen()),
+            ),
+          ),
+          _Tool(
+            icon: CupertinoIcons.photo_on_rectangle,
+            title: 'Portfolyo',
+            desc: 'Çekim örneklerini sergile, etkileşim al',
+            ready: true,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PortfolioScreen()),
+            ),
+          ),
+          _Tool(
+            icon: CupertinoIcons.star,
+            title: 'Yorumlar',
+            desc: 'Müşteri değerlendirmelerini yönet',
+            ready: true,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ReviewsScreen()),
             ),
           ),
           const SizedBox(height: HgSpace.xl),
