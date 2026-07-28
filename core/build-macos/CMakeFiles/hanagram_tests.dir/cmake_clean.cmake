@@ -1,0 +1,41 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/hanagram_tests.dir/tests/main.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/main.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_ad.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_ad.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_api.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_api.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_appointment.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_appointment.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_business.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_business.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_customer.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_customer.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_interest.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_interest.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_invite.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_invite.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_json.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_json.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_learner.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_learner.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_media.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_media.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_messaging.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_messaging.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_product.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_product.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_ranker.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_ranker.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_sale.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_sale.cpp.o.d"
+  "CMakeFiles/hanagram_tests.dir/tests/test_store.cpp.o"
+  "CMakeFiles/hanagram_tests.dir/tests/test_store.cpp.o.d"
+  "hanagram_tests"
+  "hanagram_tests.pdb"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/hanagram_tests.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

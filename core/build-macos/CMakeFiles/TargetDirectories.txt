@@ -1,0 +1,6 @@
+/Users/bekaans/Desktop/Yazılım/hanagram/core/build-macos/CMakeFiles/hanagram_core.dir
+/Users/bekaans/Desktop/Yazılım/hanagram/core/build-macos/CMakeFiles/hanagram.dir
+/Users/bekaans/Desktop/Yazılım/hanagram/core/build-macos/CMakeFiles/hanagram_tests.dir
+/Users/bekaans/Desktop/Yazılım/hanagram/core/build-macos/CMakeFiles/test.dir
+/Users/bekaans/Desktop/Yazılım/hanagram/core/build-macos/CMakeFiles/edit_cache.dir
+/Users/bekaans/Desktop/Yazılım/hanagram/core/build-macos/CMakeFiles/rebuild_cache.dir

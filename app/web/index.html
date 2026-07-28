@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Hanagram — sosyal medya iş platformu. İçerik üret, keşfet, işletmeni yönet.">
+  <meta name="theme-color" content="#7C3AED">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Hanagram">
+  <meta name="application-name" content="Hanagram">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- iOS ikonları -->
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <title>Hanagram</title>
+
+  <style>
+    body {
+      margin: 0;
+      background-color: #0A0A0F;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    // Service Worker kaydı — PWA offline desteği
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./service-worker.js')
+          .then(function(registration) {
+            console.log('SW kayıtlı:', registration.scope);
+          })
+          .catch(function(error) {
+            console.log('SW kayıt hatası:', error);
+          });
+      });
+    }
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
