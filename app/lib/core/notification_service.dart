@@ -16,16 +16,27 @@ class NotificationService {
   // ─── OneSignal Başlatma ───
 
   /// OneSignal'i başlat (main.dart'tan bir kez çağrılır).
+  /// Web'de OneSignal çalışmaz → sessizce atlanır.
   static Future<void> init() async {
     if (_initialized) return;
 
-    OneSignal.initialize('ONESIGNAL_APP_ID');
-    OneSignal.User.pushSubscription.optIn();
+    try {
+      const isWeb = bool.fromEnvironment('dart.library.js_interop');
+      if (isWeb) {
+        _initialized = true;
+        return;
+      }
 
-    // Bildirim tıklama olayı
-    OneSignal.Notifications.addClickListener((event) {
-      _handleNotificationClick(event);
-    });
+      OneSignal.initialize('ONESIGNAL_APP_ID');
+      OneSignal.User.pushSubscription.optIn();
+
+      // Bildirim tıklama olayı
+      OneSignal.Notifications.addClickListener((event) {
+        _handleNotificationClick(event);
+      });
+    } catch (_) {
+      // OneSignal başlatılamazsa sessizce devam et
+    }
 
     _initialized = true;
   }

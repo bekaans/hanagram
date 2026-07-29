@@ -34,12 +34,20 @@ class _VideoSplashState extends State<VideoSplash> {
         if (!mounted) return;
         setState(() => _ready = true);
         _ctrl.play();
+      }).catchError((_) {
+        // Video yüklenemezse (web vb.) direkt geç
+        _finish();
       });
 
     _ctrl.addListener(_onVideoProgress);
 
     // 2 saniye sonra dokunma izni ver
     _tapTimer = Timer(const Duration(seconds: 2), () {});
+
+    // 5 saniye sonra video hâlâ yüklenmediyse otomatik geç
+    Timer(const Duration(seconds: 5), () {
+      if (!_done && mounted) _finish();
+    });
   }
 
   void _onVideoProgress() {

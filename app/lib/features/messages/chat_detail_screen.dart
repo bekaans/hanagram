@@ -1,11 +1,15 @@
 // Hanagram — sohbet detay ekranı
 //
 // WhatsApp hissiyatında, ama Hanagram'a özgü cam/liquid tasarım.
+// Supabase real-time ile çalışıyor.
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/message_models.dart';
+import '../../core/message_service.dart';
 import 'package:hanagram_design/design.dart';
 
 class ChatDetailScreen extends StatefulWidget {
@@ -25,35 +29,60 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  final List<_ChatMessage> _messages = [];
+  final List<ChatMessage> _messages = [];
+  bool _isLoading = true;
+  bool _isSending = false;
+  StreamSubscription<ChatMessage>? _msgSub;
 
   @override
   void initState() {
     super.initState();
-    // Örnek mesajlar
-    _messages.addAll([
-      _ChatMessage(text: 'Merhaba! Nasılsın?', isMe: false, time: '14:20'),
-      _ChatMessage(text: 'İyiyim, teşekkürler! Sen nasılsın?', isMe: true, time: '14:22'),
-      _ChatMessage(text: 'Ben de iyiyim. Yarınki randevu için saat kaç müsait?', isMe: false, time: '14:25'),
-      _ChatMessage(text: 'Saat 15 ideal olur benim için 👍', isMe: true, time: '14:26'),
-      _ChatMessage(text: 'Tamam, 15\'e ayarlayalım o zaman. Görüşürüz!', isMe: false, time: '14:28'),
-    ]);
+    _loadMessages();
+    _subscribeMessages();
+    _markAsRead();
   }
 
   @override
   void dispose() {
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    _msgSub?.cancel();
+    MessageService.unsubscribeMessages();
     super.dispose();
   }
 
-  void _send() {
-    final text = _msgCtrl.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _messages.add(_ChatMessage(text: text, isMe: true, time: _nowStr()));
+  void _subscribeMessages() {
+    _msgSub?.cancel();
+    _msgSub =
+        MessageService.subscribeToMessages(widget.threadId).listen((msg) {
+      if (!mounted) return;
+      setState(() => _messages.add(msg));
+      _scrollToBottom();
     });
-    _msgCtrl.clear();
+  }
+
+  Future<void> _loadMessages() async {
+    setState(() => _isLoading = true);
+    try {
+      final msgs = await MessageService.getMessages(widget.threadId);
+      if (mounted) {
+        setState(() {
+          _messages.addAll(msgs);
+          _isLoading = false;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _markAsRead() async {
+    await MessageService.markAsRead(widget.threadId);
+  }
+
+  void _scrollToBottom() {
+    if (!_scrollCtrl.hasClients) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
@@ -65,9 +94,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
   }
 
-  String _nowStr() {
-    final now = DateTime.now();
-    return '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+  Future<void> _send() async {
+    final text = _msgCtrl.text.trim();
+    if (text.isEmpty || _isSending) return;
+
+    setState(() => _isSending = true);
+    _msgCtrl.clear();
+
+    final success =
+        await MessageService.sendMessage(widget.threadId, text);
+
+    if (!success && mounted) {
+      // Hata durumunda mesajı geri yükle
+      _msgCtrl.text = text;
+    }
+
+    if (mounted) setState(() => _isSending = false);
+    _scrollToBottom();
   }
 
   @override
@@ -76,7 +119,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final brightness = Theme.of(context).brightness;
     final isDark = brightness == Brightness.dark;
 
-    // Glass bar rengi temaya göre
     final glassBg = isDark
         ? Colors.white.withValues(alpha: 0.04)
         : c.surface.withValues(alpha: 0.90);
@@ -103,7 +145,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 child: Row(
                   children: [
                     IconButton(
-                      icon: Icon(CupertinoIcons.back, size: 20, color: c.text),
+                      icon: Icon(CupertinoIcons.back,
+                          size: 20, color: c.text),
                       onPressed: () => Navigator.pop(context),
                     ),
                     Avatar(name: widget.otherName, size: 36),
@@ -114,19 +157,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(widget.otherName,
-                              style: HgText.bodyStrong.copyWith(color: c.text),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                              style: HgText.bodyStrong
+                                  .copyWith(color: c.text, shadows: null),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
                           Text('Çevrimiçi',
-                              style: HgText.caption.copyWith(color: c.success)),
+                              style: HgText.caption.copyWith(
+                                  color: c.success, shadows: null)),
                         ],
                       ),
                     ),
                     IconButton(
-                      icon: Icon(CupertinoIcons.phone, size: 20, color: c.textMuted),
+                      icon: Icon(CupertinoIcons.phone,
+                          size: 20, color: c.textMuted),
                       onPressed: () {},
                     ),
                     IconButton(
-                      icon: Icon(CupertinoIcons.video_camera, size: 20, color: c.textMuted),
+                      icon: Icon(CupertinoIcons.video_camera,
+                          size: 20, color: c.textMuted),
                       onPressed: () {},
                     ),
                     const SizedBox(width: 4),
@@ -140,12 +188,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              controller: _scrollCtrl,
-              padding: const EdgeInsets.symmetric(horizontal: HgSpace.md, vertical: HgSpace.sm),
-              itemCount: _messages.length,
-              itemBuilder: (_, i) => _MessageBubble(msg: _messages[i], c: c),
-            ),
+            child: _isLoading
+                ? Center(
+                    child: CupertinoActivityIndicator(color: c.violet))
+                : _messages.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(CupertinoIcons.chat_bubble,
+                                size: 40, color: c.textFaint),
+                            const SizedBox(height: 12),
+                            Text('Henüz mesaj yok',
+                                style: HgText.body.copyWith(
+                                    color: c.textMuted, shadows: null)),
+                            const SizedBox(height: 4),
+                            Text('İlk mesajı gönderin!',
+                                style: HgText.caption.copyWith(
+                                    color: c.textFaint, shadows: null)),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: _scrollCtrl,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: HgSpace.md, vertical: HgSpace.sm),
+                        itemCount: _messages.length,
+                        itemBuilder: (_, i) => _MessageBubble(
+                            msg: _messages[i], c: c),
+                      ),
           ),
           // Alt giriş alanı — glass efektli
           ClipRect(
@@ -156,7 +227,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   HgSpace.md,
                   HgSpace.sm,
                   HgSpace.md,
-                  HgSpace.sm + MediaQuery.of(context).viewPadding.bottom,
+                  HgSpace.sm +
+                      MediaQuery.of(context).viewPadding.bottom,
                 ),
                 decoration: BoxDecoration(
                   color: glassBg,
@@ -172,22 +244,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         color: c.surfaceAlt.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Icon(CupertinoIcons.smiley, size: 20, color: c.textMuted),
+                      child: Icon(CupertinoIcons.smiley,
+                          size: 20, color: c.textMuted),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
                           color: c.surfaceAlt.withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: TextField(
                           controller: _msgCtrl,
-                          style: HgText.body.copyWith(color: c.text),
+                          style:
+                              HgText.body.copyWith(color: c.text),
                           decoration: InputDecoration(
                             hintText: 'Mesaj yaz...',
-                            hintStyle: HgText.body.copyWith(color: c.textFaint),
+                            hintStyle: HgText.body.copyWith(
+                                color: c.textFaint, shadows: null),
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.zero,
                           ),
@@ -201,10 +277,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: c.violet,
+                          color: _isSending
+                              ? c.textFaint
+                              : c.violet,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(CupertinoIcons.arrow_up, size: 18, color: Colors.white),
+                        child: const Icon(
+                            CupertinoIcons.arrow_up,
+                            size: 18,
+                            color: Colors.white),
                       ),
                     ),
                   ],
@@ -222,8 +303,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({required this.msg, required this.c});
-  final _ChatMessage msg;
+  final ChatMessage msg;
   final HgColors c;
+
+  String _timeStr() {
+    final h = msg.createdAt.hour.toString().padLeft(2, '0');
+    final m = msg.createdAt.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -231,7 +318,8 @@ class _MessageBubble extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
-        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment:
+            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMe) ...[
@@ -240,7 +328,8 @@ class _MessageBubble extends StatelessWidget {
           ],
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: isMe
                     ? c.violet.withValues(alpha: 0.85)
@@ -256,15 +345,16 @@ class _MessageBubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    msg.text,
+                    msg.content,
                     style: HgText.body.copyWith(
                       color: isMe ? Colors.white : c.text,
                       fontSize: 14.5,
+                      shadows: null,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    msg.time,
+                    _timeStr(),
                     style: TextStyle(
                       fontSize: 10,
                       color: isMe
@@ -278,17 +368,11 @@ class _MessageBubble extends StatelessWidget {
           ),
           if (isMe) ...[
             const SizedBox(width: 6),
-            Icon(CupertinoIcons.checkmark_circle_fill, size: 14, color: c.violet),
+            Icon(CupertinoIcons.checkmark_circle_fill,
+                size: 14, color: c.violet),
           ],
         ],
       ),
     );
   }
-}
-
-class _ChatMessage {
-  const _ChatMessage({required this.text, required this.isMe, required this.time});
-  final String text;
-  final bool isMe;
-  final String time;
 }
