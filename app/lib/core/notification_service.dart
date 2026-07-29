@@ -1,11 +1,12 @@
 // Hanagram — bildirim servisi (OneSignal + Supabase Realtime)
 //
 // Tek sorumluluk: push bildirim gönderme + gerçek zamanlı dinleme.
+// Web'de OneSignal çalışmaz → koşullu import ile stub kullanılır.
 import 'dart:async';
 
-import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'onesignal_compat.dart';
 import 'supabase_service.dart';
 
 class NotificationService {
@@ -16,22 +17,14 @@ class NotificationService {
   // ─── OneSignal Başlatma ───
 
   /// OneSignal'i başlat (main.dart'tan bir kez çağrılır).
-  /// Web'de OneSignal çalışmaz → sessizce atlanır.
   static Future<void> init() async {
     if (_initialized) return;
 
     try {
-      const isWeb = bool.fromEnvironment('dart.library.js_interop');
-      if (isWeb) {
-        _initialized = true;
-        return;
-      }
+      OneSignalBridge.initialize('ONESIGNAL_APP_ID');
+      OneSignalBridge.optIn();
 
-      OneSignal.initialize('ONESIGNAL_APP_ID');
-      OneSignal.User.pushSubscription.optIn();
-
-      // Bildirim tıklama olayı
-      OneSignal.Notifications.addClickListener((event) {
+      OneSignalBridge.addClickListener((event) {
         _handleNotificationClick(event);
       });
     } catch (_) {
@@ -44,7 +37,7 @@ class NotificationService {
   /// OneSignal user ID'sini Supabase user ID ile eşle.
   static Future<void> linkUser(String userId) async {
     try {
-      OneSignal.User.addAlias('supabase_id', userId);
+      OneSignalBridge.addAlias('supabase_id', userId);
     } catch (_) {}
   }
 
@@ -197,10 +190,11 @@ class NotificationService {
 
   // ─── Bildirim Tıklama Yönetimi ───
 
-  static void _handleNotificationClick(OSNotificationClickEvent event) {
-    final data = event.notification.additionalData;
-    if (data == null) return;
-
+  static void _handleNotificationClick(dynamic event) {
+    try {
+      final data = event.notification.additionalData;
+      if (data == null) return;
+    } catch (_) {}
     // Bildirim türüne göre yönlendirme yapılacak
     // (Flutter tarafında navigator key ile yapılabilir)
   }
