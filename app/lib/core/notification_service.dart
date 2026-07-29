@@ -1,12 +1,11 @@
-// Hanagram — bildirim servisi (OneSignal + Supabase Realtime)
+// Hanagram — bildirim servisi (Supabase Realtime)
 //
 // Tek sorumluluk: push bildirim gönderme + gerçek zamanlı dinleme.
-// Web'de OneSignal çalışmaz → koşullu import ile stub kullanılır.
+// Push bildirimler Supabase Edge Function üzerinden gönderilir.
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'onesignal_compat.dart';
 import 'supabase_service.dart';
 
 class NotificationService {
@@ -14,31 +13,18 @@ class NotificationService {
 
   static bool _initialized = false;
 
-  // ─── OneSignal Başlatma ───
-
-  /// OneSignal'i başlat (main.dart'tan bir kez çağrılır).
+  /// Bildirim servisini başlat (main.dart'tan bir kez çağrılır).
   static Future<void> init() async {
     if (_initialized) return;
-
-    try {
-      OneSignalBridge.initialize('ONESIGNAL_APP_ID');
-      OneSignalBridge.optIn();
-
-      OneSignalBridge.addClickListener((event) {
-        _handleNotificationClick(event);
-      });
-    } catch (_) {
-      // OneSignal başlatılamazsa sessizce devam et
-    }
-
+    // Push bildirim Supabase Edge Function üzerinden gönderilir,
+    // istemci tarafında başlatılacak bir şey yok.
     _initialized = true;
   }
 
-  /// OneSignal user ID'sini Supabase user ID ile eşle.
+  /// Kullanıcı Supabase user ID'sini bildirim hedefi olarak kaydet.
   static Future<void> linkUser(String userId) async {
-    try {
-      OneSignalBridge.addAlias('supabase_id', userId);
-    } catch (_) {}
+    // Supabase Edge Function zaten auth.uid() kullanarak
+    // hedef kullanıcıyı belirler. Ek kayıt gerekmez.
   }
 
   // ─── Push Bildirim Gönderme ───
@@ -142,12 +128,11 @@ class NotificationService {
     return channel as StreamSubscription<void>;
   }
 
-  /// Randevu değişikliklerini dinle (aynı anda hem created_by hem attendee_id).
+  /// Randevu değişikliklerini dinle.
   static void listenToAppointments(
     String userId,
     void Function(Map<String, dynamic> appointment) onChange,
   ) {
-    // created_by dinleme
     SupabaseService.client
         .channel('appt-creator-$userId')
         .onPostgresChanges(
@@ -167,7 +152,6 @@ class NotificationService {
         )
         .subscribe();
 
-    // attendee_id dinleme
     SupabaseService.client
         .channel('appt-attendee-$userId')
         .onPostgresChanges(
@@ -186,16 +170,5 @@ class NotificationService {
           },
         )
         .subscribe();
-  }
-
-  // ─── Bildirim Tıklama Yönetimi ───
-
-  static void _handleNotificationClick(dynamic event) {
-    try {
-      final data = event.notification.additionalData;
-      if (data == null) return;
-    } catch (_) {}
-    // Bildirim türüne göre yönlendirme yapılacak
-    // (Flutter tarafında navigator key ile yapılabilir)
   }
 }
