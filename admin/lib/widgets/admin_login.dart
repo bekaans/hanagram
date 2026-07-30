@@ -18,6 +18,12 @@ class AdminLoginScreen extends StatefulWidget {
 }
 
 class _AdminLoginScreenState extends State<AdminLoginScreen> {
+  // "admin" kullanıcı adı bu e-postaya eşlenir — Supabase Auth e-posta ister,
+  // ama panel kullanıcı adı/şifre ile giriş gibi davranır.
+  static const _usernameEmailMap = {
+    'admin': 'bekaans+hanagramadmin@icloud.com',
+  };
+
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   String? _error;
@@ -31,12 +37,13 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   }
 
   Future<void> _submit() async {
-    final email = _emailCtrl.text.trim();
+    final input = _emailCtrl.text.trim();
     final pass = _passCtrl.text;
-    if (email.isEmpty || pass.isEmpty) {
-      setState(() => _error = 'E-posta ve şifre gerekli');
+    if (input.isEmpty || pass.isEmpty) {
+      setState(() => _error = 'Kullanıcı adı ve şifre gerekli');
       return;
     }
+    final email = _usernameEmailMap[input.toLowerCase()] ?? input;
     setState(() {
       _busy = true;
       _error = null;
@@ -54,8 +61,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
   String _friendlyError(Object e) {
     final s = e.toString();
-    if (s.contains('Invalid login credentials')) return 'E-posta veya şifre hatalı';
-    if (s.contains('Email not confirmed')) return 'E-posta henüz doğrulanmamış';
+    if (s.contains('Invalid login credentials')) return 'Kullanıcı adı veya şifre hatalı';
+    if (s.contains('Email not confirmed')) return 'Hesap henüz onaylanmamış';
     return 'Giriş başarısız: $s';
   }
 
@@ -80,11 +87,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
               const SizedBox(height: HgSpace.xl),
               TextField(
                 controller: _emailCtrl,
-                keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 style: HgText.body.copyWith(color: c.text),
                 decoration: InputDecoration(
-                  labelText: 'E-posta',
+                  labelText: 'Kullanıcı adı',
                   labelStyle: HgText.small.copyWith(color: c.textMuted),
                   filled: true,
                   fillColor: c.surface,

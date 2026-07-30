@@ -24,6 +24,7 @@ class AdminRail extends StatelessWidget {
     (Icons.people_outline, 'Kullanıcılar'),
     (Icons.system_update_outlined, 'Güncellemeler'),
     (Icons.vpn_key_outlined, 'Referanslar'),
+    (Icons.verified_outlined, 'Doğrulamalar'),
   ];
 
   @override

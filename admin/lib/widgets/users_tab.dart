@@ -3,6 +3,7 @@
 // Tüm kullanıcılar Supabase'den çekiliyor. Detay tıklandığında kullanıcının
 // görevleri, randevuları, CRM kayıtları ve bağlantıları görüntüleniyor.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:hanagram_design/design.dart';
 
@@ -13,6 +14,12 @@ class UsersTab extends StatelessWidget {
     required this.detail,
     required this.onOpenUser,
     required this.onBack,
+    this.openConversationId,
+    this.openConversationLabel,
+    this.conversationMessages = const [],
+    this.conversationLoading = false,
+    required this.onOpenConversation,
+    required this.onCloseConversation,
   });
 
   final List<Map<String, dynamic>> users;
@@ -20,10 +27,98 @@ class UsersTab extends StatelessWidget {
   final ValueChanged<String> onOpenUser;
   final VoidCallback onBack;
 
+  final String? openConversationId;
+  final String? openConversationLabel;
+  final List<Map<String, dynamic>> conversationMessages;
+  final bool conversationLoading;
+  final void Function(String conversationId, String label) onOpenConversation;
+  final VoidCallback onCloseConversation;
+
   @override
   Widget build(BuildContext context) {
+    if (openConversationId != null) return _conversationView(context);
     if (detail != null) return _userDetail(context);
     return _userList(context);
+  }
+
+  // ─── Sohbet görüntüleyici (moderasyon amaçlı okuma) ───
+
+  Widget _conversationView(BuildContext context) {
+    final c = HgTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(HgSpace.xl),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: onCloseConversation,
+                icon: Icon(Icons.arrow_back, color: c.textMuted),
+              ),
+              Expanded(
+                child: Text(openConversationLabel ?? 'Sohbet',
+                    style: HgText.title.copyWith(color: c.text)),
+              ),
+              HgChip(label: 'Salt okunur — moderasyon', color: c.warning),
+            ],
+          ),
+        ),
+        Expanded(
+          child: conversationLoading
+              ? const Center(child: CircularProgressIndicator())
+              : conversationMessages.isEmpty
+                  ? const EmptyState(
+                      icon: Icons.chat_bubble_outline,
+                      title: 'Mesaj yok',
+                      message: 'Bu sohbette henüz mesaj yok.',
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: HgSpace.xl, vertical: HgSpace.sm),
+                      itemCount: conversationMessages.length,
+                      itemBuilder: (_, i) {
+                        final m = conversationMessages[i];
+                        final sender =
+                            (m['sender'] as Map?)?.cast<String, dynamic>() ??
+                                {};
+                        final senderName =
+                            sender['full_name'] as String? ?? 'Bilinmeyen';
+                        final content = m['content'] as String? ?? '';
+                        final createdAt = m['created_at'] as String? ?? '';
+                        return Padding(
+                          padding:
+                              const EdgeInsets.only(bottom: HgSpace.sm),
+                          child: HgCard(
+                            padding: const EdgeInsets.all(HgSpace.md),
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(senderName,
+                                        style: HgText.bodyStrong
+                                            .copyWith(color: c.violet)),
+                                    const Spacer(),
+                                    Text(_formatDateTime(createdAt),
+                                        style: HgText.caption
+                                            .copyWith(color: c.textFaint)),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(content,
+                                    style: HgText.body
+                                        .copyWith(color: c.text)),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
   }
 
   // ─── Kullanıcı listesi ───
@@ -62,6 +157,7 @@ class UsersTab extends StatelessWidget {
                     final username = u['username'] as String? ?? '';
                     final accType = u['account_type'] as String? ?? 'personal';
                     final createdAt = u['created_at'] as String? ?? '';
+                    final isAdmin = u['is_admin'] == true;
                     return HgCard(
                       onTap: () => onOpenUser(u['auth_id'] as String? ?? ''),
                       padding:
@@ -76,9 +172,18 @@ class UsersTab extends StatelessWidget {
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                Text(name,
-                                    style: HgText.bodyStrong
-                                        .copyWith(color: c.text)),
+                                Row(
+                                  children: [
+                                    Text(name,
+                                        style: HgText.bodyStrong
+                                            .copyWith(color: c.text)),
+                                    if (isAdmin) ...[
+                                      const SizedBox(width: 6),
+                                      Icon(Icons.shield,
+                                          size: 13, color: c.warning),
+                                    ],
+                                  ],
+                                ),
                                 Text('@$username',
                                     style: HgText.caption
                                         .copyWith(
@@ -129,6 +234,8 @@ class UsersTab extends StatelessWidget {
     final appointments = (detail!['appointments'] as List?) ?? [];
     final crm = (detail!['crm'] as List?) ?? [];
     final connections = (detail!['connections'] as List?) ?? [];
+    final conversations = (detail!['conversations'] as List?) ?? [];
+    final referredUsers = (detail!['referredUsers'] as List?) ?? [];
 
     final name = profile['full_name'] as String? ?? '';
     final username = profile['username'] as String? ?? '';
@@ -137,6 +244,7 @@ class UsersTab extends StatelessWidget {
     final accType = profile['account_type'] as String? ?? 'personal';
     final avatarUrl = profile['avatar_url'] as String?;
     final createdAt = profile['created_at'] as String? ?? '';
+    final referralCode = profile['my_referral_code'] as String?;
 
     return ListView(
       padding: const EdgeInsets.all(HgSpace.xl),
@@ -191,6 +299,54 @@ class UsersTab extends StatelessWidget {
         ],
         Text('Katılım: ${_formatDate(createdAt)}',
             style: HgText.small.copyWith(color: c.textFaint)),
+        const SizedBox(height: HgSpace.lg),
+
+        // ─── Referans Kodu (profil resminin altında) ───
+        if (referralCode != null && referralCode.isNotEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(HgSpace.md),
+            decoration: BoxDecoration(
+              color: c.surfaceAlt,
+              borderRadius: BorderRadius.circular(HgRadius.md),
+              border: Border.all(color: c.violet.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.vpn_key, size: 20, color: c.violet),
+                const SizedBox(width: HgSpace.md),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Referans Kodu',
+                        style:
+                            HgText.caption.copyWith(color: c.textMuted)),
+                    Text(referralCode,
+                        style: HgText.mono
+                            .copyWith(color: c.text, fontSize: 18)),
+                  ],
+                ),
+                const Spacer(),
+                HgChip(
+                  label: '${referredUsers.length} kişi getirdi',
+                  color: c.success,
+                ),
+                IconButton(
+                  icon: Icon(Icons.copy, size: 18, color: c.violet),
+                  tooltip: 'Kodu kopyala',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: referralCode));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('$referralCode kopyalandı'),
+                        backgroundColor: c.success,
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
         const SizedBox(height: HgSpace.xl),
 
         // ─── Sayısal Özet ───
@@ -252,7 +408,96 @@ class UsersTab extends StatelessWidget {
           for (final conn in connections)
             _connectionTile(c, conn as Map<String, dynamic>),
         const SizedBox(height: HgSpace.xl),
+
+        // ─── Sohbetler (moderasyon — mesajları okuyabilirsin) ───
+        _sectionHeader(c, 'Sohbetler', conversations.length,
+            Icons.chat_bubble_outline),
+        const SizedBox(height: HgSpace.sm),
+        if (conversations.isEmpty)
+          _empty(c, 'Sohbet yok')
+        else
+          for (final conv in conversations)
+            _conversationTile(c, conv as Map<String, dynamic>),
+        const SizedBox(height: HgSpace.xl),
+
+        // ─── Davet Ettikleri ───
+        _sectionHeader(c, 'Davet Ettikleri', referredUsers.length,
+            Icons.person_add_alt_outlined),
+        const SizedBox(height: HgSpace.sm),
+        if (referredUsers.isEmpty)
+          _empty(c, 'Henüz kimseyi davet etmemiş')
+        else
+          for (final r in referredUsers)
+            _referredTile(c, r as Map<String, dynamic>),
+        const SizedBox(height: HgSpace.xl),
       ],
+    );
+  }
+
+  Widget _conversationTile(HgColors c, Map<String, dynamic> conv) {
+    final label = conv['label'] as String? ?? 'Sohbet';
+    final type = conv['type'] as String? ?? 'dm';
+    final lastMessage = conv['lastMessage'] as String? ?? '';
+    final id = conv['id'] as String;
+
+    return HgCard(
+      padding: const EdgeInsets.all(HgSpace.md),
+      onTap: () => onOpenConversation(id, label),
+      child: Row(
+        children: [
+          Icon(
+            type == 'group' ? Icons.groups_outlined : Icons.person_outline,
+            size: 20,
+            color: c.violet,
+          ),
+          const SizedBox(width: HgSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: HgText.bodyStrong.copyWith(color: c.text)),
+                if (lastMessage.isNotEmpty)
+                  Text(lastMessage,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: HgText.caption.copyWith(color: c.textMuted)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, size: 18, color: c.textFaint),
+        ],
+      ),
+    );
+  }
+
+  static Widget _referredTile(HgColors c, Map<String, dynamic> r) {
+    final referred = (r['referred'] as Map?)?.cast<String, dynamic>() ?? {};
+    final name = referred['full_name'] as String? ?? '?';
+    final username = referred['username'] as String? ?? '?';
+    final createdAt = r['created_at'] as String? ?? '';
+
+    return HgCard(
+      padding: const EdgeInsets.all(HgSpace.md),
+      child: Row(
+        children: [
+          Avatar(name: name, size: 32),
+          const SizedBox(width: HgSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: HgText.bodyStrong.copyWith(color: c.text)),
+                Text('@$username',
+                    style: HgText.caption.copyWith(color: c.textMuted)),
+              ],
+            ),
+          ),
+          Text(_formatDate(createdAt),
+              style: HgText.small.copyWith(color: c.textFaint)),
+        ],
+      ),
     );
   }
 
@@ -487,6 +732,17 @@ class UsersTab extends StatelessWidget {
       return '${dt.day.toString().padLeft(2, '0')}.'
           '${dt.month.toString().padLeft(2, '0')}.'
           '${dt.year}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  static String _formatDateTime(String iso) {
+    if (iso.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return '${_formatDate(iso)} ${dt.hour.toString().padLeft(2, '0')}:'
+          '${dt.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return iso;
     }

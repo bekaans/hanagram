@@ -12,6 +12,7 @@ import 'widgets/overview_tab.dart';
 import 'widgets/users_tab.dart';
 import 'widgets/updates_tab.dart';
 import 'widgets/referrals_tab.dart';
+import 'widgets/verifications_tab.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +52,13 @@ class _AdminHomeState extends State<AdminHome> {
   Map<String, dynamic>? _detail;
   List<Map<String, dynamic>> _versions = [];
   List<Map<String, dynamic>> _referrals = [];
+  List<Map<String, dynamic>> _verifications = [];
+
+  // Admin'in bir kullanıcının sohbetini açıp mesajları okuduğu görünüm.
+  String? _openConversationId;
+  String? _openConversationLabel;
+  List<Map<String, dynamic>> _conversationMessages = [];
+  bool _conversationLoading = false;
 
   @override
   void initState() {
@@ -101,12 +109,14 @@ class _AdminHomeState extends State<AdminHome> {
       final usersFuture = AdminSupabase.fetchUsers();
       final versionsFuture = AdminSupabase.fetchVersions();
       final referralsFuture = AdminSupabase.fetchReferrals();
+      final verificationsFuture = AdminSupabase.fetchVerificationRequests();
 
       final results = await Future.wait([
         overviewFuture,
         usersFuture,
         versionsFuture,
         referralsFuture,
+        verificationsFuture,
       ]);
 
       if (mounted) {
@@ -115,6 +125,7 @@ class _AdminHomeState extends State<AdminHome> {
           _users = results[1] as List<Map<String, dynamic>>;
           _versions = results[2] as List<Map<String, dynamic>>;
           _referrals = results[3] as List<Map<String, dynamic>>;
+          _verifications = results[4] as List<Map<String, dynamic>>;
         });
       }
     } catch (e) {
@@ -133,7 +144,10 @@ class _AdminHomeState extends State<AdminHome> {
   /// Kullanıcı detayını yükle.
   Future<void> _openUser(String authId) async {
     try {
-      setState(() => _loading = true);
+      setState(() {
+        _loading = true;
+        _openConversationId = null;
+      });
       final detail = await AdminSupabase.fetchUserDetail(authId);
       if (mounted) {
         setState(() {
@@ -144,6 +158,38 @@ class _AdminHomeState extends State<AdminHome> {
     } catch (e) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Bir kullanıcının sohbetini aç, mesajları getir (moderasyon amaçlı okuma).
+  Future<void> _openConversation(String conversationId, String label) async {
+    setState(() {
+      _openConversationId = conversationId;
+      _openConversationLabel = label;
+      _conversationLoading = true;
+      _conversationMessages = [];
+    });
+    final messages =
+        await AdminSupabase.fetchConversationMessages(conversationId);
+    if (mounted) {
+      setState(() {
+        _conversationMessages = messages;
+        _conversationLoading = false;
+      });
+    }
+  }
+
+  void _closeConversation() {
+    setState(() {
+      _openConversationId = null;
+      _openConversationLabel = null;
+      _conversationMessages = [];
+    });
+  }
+
+  /// Doğrulama isteğini onayla/reddet.
+  Future<void> _reviewVerification(String requestId, bool approve) async {
+    await AdminSupabase.reviewVerification(requestId, approve: approve);
+    await _refresh();
   }
 
   @override
@@ -189,11 +235,21 @@ class _AdminHomeState extends State<AdminHome> {
                           detail: _detail,
                           onOpenUser: _openUser,
                           onBack: () => setState(() => _detail = null),
+                          openConversationId: _openConversationId,
+                          openConversationLabel: _openConversationLabel,
+                          conversationMessages: _conversationMessages,
+                          conversationLoading: _conversationLoading,
+                          onOpenConversation: _openConversation,
+                          onCloseConversation: _closeConversation,
                         ),
                     2 => UpdatesTab(versions: _versions, onRefresh: _refresh),
                     3 => ReferralsTab(
                           users: _users,
                           referrals: _referrals,
+                        ),
+                    4 => VerificationsTab(
+                          requests: _verifications,
+                          onReview: _reviewVerification,
                         ),
                     _ => OverviewTab(overview: _overview),
                   },

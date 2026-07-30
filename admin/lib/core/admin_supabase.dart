@@ -161,24 +161,44 @@ class AdminSupabase {
     return (r as List).cast<Map<String, dynamic>>();
   }
 
-  /// Tek bir kullanıcının tam detayı.
+  /// Tek bir kullanıcının tam detayı — görevler, randevular, CRM, bağlantılar,
+  /// sohbetler ve davet ettiği kişiler. [authId] Supabase Auth kimliği —
+  /// tablolardaki foreign key'ler `users.id`'yi beklediği için önce çözülür.
   static Future<Map<String, dynamic>> fetchUserDetail(String authId) async {
+    final profile = await client
+        .from('users')
+        .select('*')
+        .eq('auth_id', authId)
+        .maybeSingle();
+
+    final dbId = profile?['id'] as String?;
+    if (dbId == null) {
+      return {
+        'profile': profile,
+        'tasks': <Map<String, dynamic>>[],
+        'appointments': <Map<String, dynamic>>[],
+        'crm': <Map<String, dynamic>>[],
+        'connections': <Map<String, dynamic>>[],
+        'conversations': <Map<String, dynamic>>[],
+        'referredUsers': <Map<String, dynamic>>[],
+      };
+    }
+
     final results = await Future.wait([
-      client.from('users').select('*').eq('auth_id', authId).maybeSingle(),
       client
           .from('tasks')
           .select('*')
-          .or('created_by.eq.$authId,assigned_to.eq.$authId')
+          .or('created_by.eq.$dbId,assigned_to.eq.$dbId')
           .order('created_at', ascending: false),
       client
           .from('appointments')
           .select('*')
-          .or('created_by.eq.$authId,attendee_id.eq.$authId')
+          .or('created_by.eq.$dbId,attendee_id.eq.$dbId')
           .order('date', ascending: false),
       client
           .from('crm_entries')
           .select('*')
-          .eq('user_id', authId)
+          .eq('user_id', dbId)
           .order('date', ascending: false),
       client
           .from('connections')
@@ -186,16 +206,136 @@ class AdminSupabase {
             id, status, role, created_at,
             connected:users!connections_connected_id_fkey(id, full_name, username, avatar_url)
           ''')
-          .eq('user_id', authId),
+          .eq('user_id', dbId),
+      fetchUserConversations(dbId),
+      client
+          .from('referrals')
+          .select('''
+            id, created_at,
+            referred:users!referrals_referred_id_fkey(id, full_name, username, avatar_url)
+          ''')
+          .eq('referrer_id', dbId)
+          .order('created_at', ascending: false),
     ]);
 
     return {
-      'profile': results[0],
-      'tasks': results[1],
-      'appointments': results[2],
-      'crm': results[3],
-      'connections': results[4],
+      'profile': profile,
+      'tasks': results[0],
+      'appointments': results[1],
+      'crm': results[2],
+      'connections': results[3],
+      'conversations': results[4],
+      'referredUsers': results[5],
     };
+  }
+
+  // ─── Sohbetler (admin — moderasyon amaçlı okuma) ───
+
+  /// Bir kullanıcının üyesi olduğu tüm sohbetleri, son mesaj önizlemesiyle getir.
+  static Future<List<Map<String, dynamic>>> fetchUserConversations(
+      String dbId) async {
+    final memberRows = await client
+        .from('conversation_members')
+        .select('conversation_id')
+        .eq('user_id', dbId);
+    final convIds = (memberRows as List)
+        .map((r) => (r as Map)['conversation_id'] as String)
+        .toList();
+    if (convIds.isEmpty) return [];
+
+    final convs = await client
+        .from('conversations')
+        .select('id, type, name, created_at, updated_at')
+        .inFilter('id', convIds)
+        .order('updated_at', ascending: false);
+
+    final result = <Map<String, dynamic>>[];
+    for (final row in (convs as List)) {
+      final c = row as Map<String, dynamic>;
+      final convId = c['id'] as String;
+      var label = c['name'] as String? ?? '';
+
+      if (c['type'] == 'dm' && label.isEmpty) {
+        final others = await client
+            .from('conversation_members')
+            .select('user:users!conversation_members_user_id_fkey(full_name)')
+            .eq('conversation_id', convId)
+            .neq('user_id', dbId)
+            .limit(1);
+        final othersList = others as List;
+        if (othersList.isNotEmpty) {
+          final u = (othersList[0] as Map)['user'] as Map?;
+          label = u?['full_name'] as String? ?? 'Bilinmeyen kullanıcı';
+        }
+      }
+      if (label.isEmpty) label = c['type'] == 'group' ? 'Ekip sohbeti' : 'Sohbet';
+
+      final lastMsg = await client
+          .from('messages')
+          .select('content, created_at')
+          .eq('conversation_id', convId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      result.add({
+        'id': convId,
+        'type': c['type'],
+        'label': label,
+        'lastMessage': lastMsg?['content'] as String? ?? '',
+        'lastAt': lastMsg?['created_at'] as String? ??
+            c['created_at'] as String? ??
+            '',
+      });
+    }
+    return result;
+  }
+
+  /// Bir sohbetin tüm mesajlarını getir (admin moderasyon görünümü).
+  static Future<List<Map<String, dynamic>>> fetchConversationMessages(
+      String conversationId) async {
+    final r = await client
+        .from('messages')
+        .select('*, sender:users!messages_sender_id_fkey(full_name, username)')
+        .eq('conversation_id', conversationId)
+        .order('created_at', ascending: true);
+    return (r as List).cast<Map<String, dynamic>>();
+  }
+
+  // ─── Doğrulama İstekleri ───
+
+  static Future<List<Map<String, dynamic>>> fetchVerificationRequests({
+    String? status,
+  }) async {
+    var q = client.from('verification_requests').select('''
+          *, user:users!verification_requests_user_id_fkey(full_name, username, avatar_url)
+        ''');
+    if (status != null) q = q.eq('status', status);
+    final r = await q.order('created_at', ascending: false);
+    return (r as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Doğrulama isteğini onayla/reddet. Onaylanırsa kullanıcı da doğrulanmış işaretlenir.
+  static Future<void> reviewVerification(
+    String requestId, {
+    required bool approve,
+    String note = '',
+  }) async {
+    final req = await client
+        .from('verification_requests')
+        .select('user_id')
+        .eq('id', requestId)
+        .maybeSingle();
+
+    await client.from('verification_requests').update({
+      'status': approve ? 'approved' : 'rejected',
+      'admin_note': note,
+    }).eq('id', requestId);
+
+    final userId = req?['user_id'] as String?;
+    if (approve && userId != null) {
+      await client.from('users').update({'verified': true}).eq('id', userId);
+    }
   }
 
   // ─── Görevler ───
