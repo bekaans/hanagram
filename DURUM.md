@@ -458,6 +458,175 @@ durumda. Ortak bir pakete taşınmalı — iki kopya er geç ayrışır.
 | 5 | Tech debt: admin main.dart bölündü (779→178+73+87+98+285+153+81) | 50K | 15K | 3.3:1 | 1d |
 | 6 | Web build tamamlandı: web_compat + PlatformImage + ffi_stub web bridge | 80K | 5K | 16:1 | 1d |
 
+## ⚠️ Backend entegrasyon durumu (keşif: 2026-07-29 — Kaan'ın "çalışmıyor" bildirimi üzerine)
+
+**Görev:** Arkadram (`/Users/bekaans/vscode/han-medya-is-takibi`, bkz. `~/Desktop/Yazılım/ARKADRAM_DEVIR.md`) backend'i
+Hanagram'a komple aktarılacaktı, sadece Flutter frontend aynı kalacaktı. Başka bir ajan bunu denedi, sonuç **çalışmıyor**.
+Tam keşif + gerçek `dart analyze` + gerçek `cmake --build` + Explore ajanı ile doğrulandı. Özet:
+
+- **C++ çekirdek** (`core/`): temiz derleniyor, **217/217 test geçiyor**. Sorun burada DEĞİL.
+- **`dart analyze lib`**: önceki "temiz" iddiası YANLIŞ çıktı — `.dart_tool` hiç oluşmamıştı (pub get eksikti).
+  Gerçek sonuç: **5 hata**, hepsi `core/onesignal_native.dart`'ın kaldırılmış `onesignal_flutter` paketini
+  import etmeye devam etmesinden (ölü dosya, OneSignal temizliği yarım kalmış — `onesignal_compat.dart`,
+  `onesignal_native.dart`, `onesignal_web.dart` hiçbir yerden import edilmiyor, silinebilir).
+- **Kök sebep (asıl kırılma)**: Supabase'e taşınan servisler (`task_service`, `crm_service`, `connection_service`,
+  `accounting_service`, `message_service`, `appointment_reminder`, admin panel) sistematik olarak
+  `SupabaseService.user?.id` (= `auth.uid()`) değerini, şemanın FK'lerinin gerçekte istediği `users.id` (ayrı,
+  `users.auth_id` üzerinden eşlenen UUID) yerine kullanıyor. Sonuç: her INSERT FK ihlaliyle sessizce başarısız,
+  her SELECT yanlış id ile filtrelendiği için boş dönüyor — hepsi geniş `catch (_) {}` bloklarıyla yutuluyor,
+  hiçbir yerde hata görünmüyor. Doğru yapan örnek zaten var: `profile_service.dart`, `verification_service.dart`
+  (`auth_id → users.id` çözümü net biçimde yapılıyor) — düzeltme bu deseni tüm bozuk servislere uygulamak.
+- **Hiç Supabase'e taşınmamış özellikler** (feed, discover, customer/product/sale/media/ad ekranları): hâlâ yerel
+  C++ FFI çekirdeğine bağlı. Ama gerçek kullanıcılar Supabase Auth ile kayıt oluyor ve yerel çekirdeğin kullanıcı
+  deposuna HİÇ yazılmıyor → her FFI çağrısı `ERR_USER_NOT_FOUND` veriyor → birçok ekran bu hatayı yutup sahte
+  örnek veri gösteriyor (bu davranış projenin kendi ilkesiyle çelişiyor: `main.dart:274` "sahte veriye düşülmez").
+  Teams, public portfolio, reviews, ad-packages, business referral ekranlarının ise hiçbir backend'i yok —
+  sadece bellek içi sabit liste (yeniden başlatınca kaybolur).
+- **Çift/çelişkili şema**: `app/supabase/migrations/*` ve `supabase/migrations/*` diye BİRBİRİNDEN BAĞIMSIZ iki ayrı
+  "full schema" seti var (bazı tetikleyiciler iki yerde de tanımlı) — hangisinin gerçek projeye uygulandığı repodan
+  belli değil, `supabase/config.toml` yok.
+- **Platform çapraz derleme**: sadece macOS'ta native çekirdek gerçekten derlenip bağlanmış
+  (`core/build-macos/libhanagram.dylib` → `app/macos/Runner/`). Android/iOS/Windows'ta CMake/Xcode/Gradle
+  tarafında çekirdeği üretip bağlayan HİÇBİR yapı yok — bu üç platformda uygulama "Çekirdek yüklenemedi" ekranında
+  kilitli kalır, girişe bile ulaşamaz. Web sadece stub hiç atmadığı için görünüşte ayakta kalıyor.
+
+**Faz 0 + Faz 1 UYGULANDI (2026-07-29, Kaan onayıyla — "arkadram'ı komple aktar, tüm yetki sende"):**
+- Ölü OneSignal dosyaları silindi (`onesignal_compat/native/web.dart`) — `dart analyze` artık gerçekten temiz.
+- `SupabaseService.myDbId()` eklendi (auth_id→users.id çözümü, session boyunca cache'li) + `clearCache()`
+  (her iki çıkış noktasına bağlandı: settings_screen.dart, invite_gate.dart).
+- Sistemik id hatası düzeltildi: `task_service.dart` (createTask/getMyTasks/getTasksForDate/createAppointment/
+  getAppointmentsForDate/searchAppointments/searchTasksByAssignee/canTagUser/getMyConnections),
+  `connection_service.dart` (sendRequest/getPendingRequests/getMyConnections), `accounting_service.dart`
+  (4 metod, toplu), `message_service.dart` (findOrCreateDm/getThreads/getMessages/sendMessage/markAsRead/
+  subscribeToMessages/subscribeToThreads/getConnections — searchUsers'daki tek doğru kullanım korundu),
+  `crm_service.dart` (tüm metodlar, toplu), `appointment_reminder.dart` (sendReminders/confirmAppointment/
+  cancelAppointment + iç `auth_id`→`id` düzeltmesi), admin `admin_supabase.dart` (`fetchUserDetail`).
+- Ekstra bulunan bağımsız hatalar da düzeltildi: `connections_screen.dart` `u['auth_id']` okuyordu ama
+  `ConnectionService.searchUsers` o alanı hiç seçmiyordu (`u['id']` olmalıydı — bağlantı isteği göndermek
+  HİÇ çalışmıyordu, id her zaman boş string'di); `task_service.dart searchTasksByAssignee` `auth_id` seçip
+  `created_by/assigned_to` (dbId kolonları) ile karşılaştırıyordu; `canTagUser` parametresi `targetAuthId`
+  adındaydı ama tek çağıran yer (`createTask`) zaten dbId veriyordu — parametre `targetUserId`'ye çevrildi.
+- Doğrulama: `dart analyze lib` (app + admin) → **0 sorun**. `flutter build web --release` → **başarılı**.
+  C++ çekirdek dokunulmadı, 217/217 test hâlâ geçiyor.
+- **🔴 KRİTİK EK BULGU — aynı hata RLS (Row Level Security) katmanında da var:** Dart tarafı düzeltilse bile
+  veritabanı politikaları `auth.uid()`'i doğrudan `users.id` tipindeki kolonlarla (`user_id`, `owner_id`,
+  `created_by`, `sender_id`) karşılaştırıyordu — `connections`, `business_groups`, `group_members`,
+  `conversations`, `conversation_members`, `messages` tablolarının TAMAMINDA. İkinci şema setinde
+  (`supabase/migrations/20260729_full_schema.sql`) ise `tasks`/`appointments`/`crm_entries`/`connections`/`media`
+  politikaları `USING (true)` yani TAMAMEN AÇIKTI — hangi set canlıda aktifse, ya her şey RLS'te sessizce
+  reddediliyordu ya da (açık ihtimalinde) **herkes herkesin CRM/görev/randevu kaydını görebiliyordu**
+  (guvenli-kod ihlali, Kaan'ın kendi CRM-gizliliği talebiyle doğrudan çelişiyor). Hangi set gerçekten canlı
+  bilinmiyor (repoda `supabase/config.toml` yok) — bu yüzden düzeltme dosyası ikisinden de BAĞIMSIZ, idempotent
+  yazıldı: `supabase/migrations/20260730_fix_rls_id_mismatch_and_new_tables.sql`. **Kaan'ın yapması gereken
+  TEK iş: bu dosyayı Supabase SQL Editor'da çalıştırmak** (CLI linkli değil, `service_role` key yok — buradan
+  otomatik uygulanamıyor). Aynı dosya Faz 2'nin eksik tablolarını da ekliyor (aşağıya bak).
+- **Bilinçli KAPSAM DIŞI bırakıldı:** push bildirim transportu (`send-notification` edge function hâlâ
+  OneSignal'e gönderiyor ama client SDK'sı tamamen kaldırılmış — hiçbir cihaz artık kayıtlı değil, bildirim
+  gönderimi sessizce hiçbir yere gitmiyor). Bu ayrı bir karar gerektiriyor (OneSignal'i native'e uygun şekilde
+  geri getir ya da Supabase-native bildirim tablosuna geç) — CRUD akışlarını bloklamıyor (fire-and-forget),
+  bilerek ayrı faza bırakıldı.
+- **Gerçek cihaz/tarayıcıda uçtan uca test edilmedi** (login → görev/randevu/CRM/mesaj oluştur → başka
+  hesapla doğrula) — statik analiz + derleme doğrulaması yapıldı, Kaan'ın canlı Supabase projesine karşı
+  gerçek kullanıcı akışı testi hâlâ gerekiyor.
+
+**Faz 2 devam ediyor (2026-07-29, aynı oturum):** Migration dosyasına `customers` tablosu (kişi kartı: ad/telefon/
+e-posta/not/etiket, telefonla dedup UNIQUE INDEX) + `crm_entries`'e `customer_id/payment_method/source/line_items`
+kolonları + `products`'a `category/updated_at` eklendi. Yeni servisler: `core/customer_service.dart`,
+`core/product_service.dart`, `CrmService.createSale/getSales`. Ekranlar Supabase'e bağlandı (yerel FFI + sahte
+veri fallback'i kaldırıldı, frontend widget'lara dokunulmadı): `customer_screen/sheet.dart`, `product_screen/
+sheet.dart`, `sale_screen/sheet.dart`. Doğrulama: `dart analyze lib` → 0 sorun.
+**Faz 2 devamı (aynı oturum, devam):** `media_service.dart`'a DB CRUD eklendi (`listMedia/registerMedia/
+deleteMediaRecord`) — `media_screen.dart` artık gerçekten Supabase Storage'a yüklüyor + `media` tablosuna
+kaydediyor (önceden sadece yerel path saklanıyordu, hiçbir yere yüklenmiyordu). `MediaThumb`/`_MediaViewer`
+artık `http` URL'leri `Image.network` ile gösteriyor (yerel `PlatformImage` fallback olarak kaldı).
+`review_service.dart` eklendi (`reviews` tablosu — gerçek kullanıcı yorumu VEYA işletmenin uygulama dışı aldığı
+yorumu elle girmesi, `reviewer_id` NULL olabilir). `reviews_screen.dart` gerçek veriye bağlandı.
+`post_service.dart` eklendi (posts/post_likes/post_comments — beğeni/yorum sayıları PostgREST aggregate yerine
+istemci tarafında sayılıyor, sürüm bağımsız daha güvenilir). `portfolio_screen.dart` gerçek portfolyo
+gönderilerine bağlandı, gerçek görsel gösteriyor (önceden hep gradient placeholder'dı).
+Tüm bu adımlarda `dart analyze lib` → 0 sorun.
+
+**KOMPLE BİTTİ (2026-07-29, Kaan: "komple bitir önce sonra çalıştıralım"):**
+
+- **Ekip (`team_screen/team_detail_screen/team_sheet.dart`)**: `TeamService` eklendi. Ekip kur, gerçek
+  kullanıcı arayıp davet et (eski hali sadece isim yazdırıyordu, hiçbir hesaba bağlanmıyordu — düzeltildi),
+  gerçek ekip sohbeti (`conversations.team_id` yeni kolon + `MessageService.findOrCreateTeamConversation`,
+  mevcut `ChatDetailScreen` yeniden kullanıldı), paylaşımlı görevler (`tasks.group_id`) ve paylaşımlı CRM
+  (`crm_entries.group_id` yeni kolon + RLS) gerçek tablolardan okunuyor.
+- **Feed/Keşfet**: `feed_service.dart` tamamen yeniden yazıldı — artık C++ çekirdek yerine
+  `post_service.dart` (Supabase) kullanıyor, `AppState.boot()` çekirdeksiz de çalışıyor (aşağıya bak). Sahte
+  6 örnek gönderi kaldırıldı, boş durumda dürüst EmptyState gösteriliyor. Beğeni artık gerçekten kalıcı
+  (`post_likes` tablosu, iki yönlü toggle — eskisi sadece tek yönlü sahte sayaç arttırıyordu).
+- **🔴 Ek kritik bulgu + düzeltme — profil görüntüleme tamamen kırıktı:** `profile_screen.dart` başkasının
+  profiline gidince (`isOwnProfile:false`) hâlâ `app.session` (KENDİ verin) gösteriyordu — `widget.userId`
+  hiç kullanılmıyordu. Ayrıca `ProfileService.getProfileStats`/`VerificationService.isVerified` çağrılarına
+  yanlışlıkla dbId veriliyordu (auth_id bekliyorlar) — istatistikler ve doğrulama rozeti HERKES için sessizce
+  boş/yanlış dönüyordu. "Mesaj" butonu başka birinin profilinde `'dm_${widget.userId}'` diye SAHTE bir sohbet
+  id'si üretiyordu (gerçek konuşma değil). Profil içindeki portfolyo bölümü tamamen sahte gradient+sayı idi.
+  Hepsi düzeltildi: `ProfileService.getPublicProfile(handle)` eklendi, ekran artık kendi/başkası ayrımını
+  doğru veriyle çözüyor, Yorumlar sekmesi başkasının profilinde de görünüyor ("Yorum Yap" sadece başkasının
+  profilinde, kendi profilinde değil), mesaj butonu `MessageService.findOrCreateDm` ile gerçek sohbet açıyor,
+  portfolyo gerçek `posts` verisiyle geliyor.
+- **`profile_reviews.dart` "Yorum Yap"**: gerçek veriye bağlandı, `ReviewService.submitReview` ile çalışıyor.
+- **🔴 Faz 4 — çapraz platform çözüldü:** `AppState.boot()` artık çekirdek yüklenemezse (Android/iOS/Windows'ta
+  native lib yok) uygulamayı BLOKLAMIYOR — sadece eski, zaten kullanılmayan davet/yerel-öneri akışını
+  (`inviteService`) devre dışı bırakıyor. Auth/mesaj/randevu/görev/CRM/ekip/akış hepsi Supabase'den geldiği
+  için artık gerçekten her platformda açılışa kadar çalışır (native derleme ayrı bir konu — core hâlâ sadece
+  macOS'ta derlenmiş durumda, ama artık ZORUNLU değil).
+- **`.env.example`** eklendi (`app/`, `admin/`) — `.gitignore` zaten `.env*`'i kapsıyordu. Not: Supabase
+  "publishable" anahtarı zaten public/istemci-taraflı olacak şekilde tasarlanmış (asıl güvenlik RLS'te) —
+  hardcoded default'un kalması ciddi bir açık değil, ama env override artık dokümante edilmiş durumda.
+- Doğrulama: `dart analyze` (app+admin) → **0 sorun**. `flutter build web --release` → **başarılı**.
+  `flutter build macos --debug` → **başarılı** (native çekirdek yüklü platformda da regresyon yok).
+
+**Ek temizlik (aynı geçiş):** `appointment_screen.dart` ve `accounting_screen.dart`'ta da customer/product/
+sale'dekiyle AYNI sahte-veri-fallback deseni bulundu (servisler zaten hiç exception fırlatmadığı için bu
+catch blokları ölü kodmuş, ama yine de temizlendi — `_sampleAppointments`/`_sampleCurrentReport`/
+`_samplePreviousReport`/`_sampleEntries` silindi). `review_model.dart`'taki artık kullanılmayan
+`sampleReviews`/`averageRating` de silindi.
+
+**Admin paneli komple yenilendi (2026-07-30 gece, Kaan uyurken — "tam yetki sende, programı tamamla"):**
+- Giriş: kullanıcı adı `admin` / şifre `Yenisifre.54` — Supabase Auth hesabı gerçekten oluşturuldu
+  (e-posta `bekaans+hanagramadmin@icloud.com` — Kaan'ın gerçek kutusuna düşer, + adresleme). **Kaan'ın yapması
+  gereken 2 şey:** (1) o e-postadaki Supabase onay linkine tıkla, (2) `supabase/migrations/
+  20260731_admin_bypass_and_email_confirm.sql` dosyasını SQL Editor'da çalıştır. İkisi de yapılmadan admin
+  girişi başarısız olur ("Hesap henüz onaylanmamış").
+- **🔴 Kritik bulgu**: admin paneli normal uygulamayla AYNI RLS altında çalışıyordu — yani admin hesabı bile
+  hiç kimsenin görev/randevu/CRM/mesaj/bağlantı kaydını göremiyordu (Faz 1'in "sadece kendi verin" düzeltmesi
+  admin'i de kapsıyordu). Yeni migration `users.is_admin` + `is_admin()` SQL fonksiyonu ekleyip ilgili tüm
+  SELECT politikalarına "ya da admin isen" şartını ekledi.
+- **Yeni özellik — kullanıcı arayıp tüm bilgisine + konuşmalarına erişme**: `AdminSupabase.fetchUserConversations`/
+  `fetchConversationMessages` eklendi, Kullanıcılar sekmesinde her kullanıcının Sohbetler bölümü tıklanınca
+  mesajlar salt-okunur açılıyor (moderasyon amaçlı).
+- **Referans kodu profilde**: her kullanıcının detay sayfasında, profil resminin altında referans kodu +
+  kaç kişi getirdiği + davet ettikleri listesi (ayrıca ayrı "Referanslar" sekmesi de duruyor, orada tüm
+  kullanıcılar arasında arama yapılabiliyor).
+- **Yeni sekme: Doğrulamalar** — kişisel/işletme doğrulama isteklerini listeler, belge görsellerini gösterir,
+  tek tıkla onay/red (onaylanınca kullanıcı otomatik `verified=true` olur). Daha önce DURUM.md'de "sıradaki iş"
+  olarak bekliyordu, şimdi var.
+- Doğrulama: `dart analyze` (admin) → 0 sorun, `flutter build web --release` → başarılı, giriş ekranı
+  tarayıcıda görsel olarak doğrulandı (yeni "Kullanıcı adı" etiketiyle).
+
+**Bilerek dışarıda bırakılan (kapsam dışı, dürüst durumda kaldılar):**
+- `ad_screen.dart` (zaten sahte veriye düşmeden gerçek hata veriyor), `packages_screen.dart`,
+  `referral_screen.dart` (business) — Kaan'ın orijinal Arkadram spesifikasyonunda hiç yok, ikisi de
+  "yakında" diyor, yanlış bir şey iddia etmiyor.
+- `features/profile/widgets/stat_detail_sheet.dart` — profildeki bir istatistiğe (satış/randevu/takipçi/
+  beğeni/ürün/favori) tıklayınca açılan detay listesi hâlâ 6 kategoride sabit sahte veri. Ana sayıların
+  kendisi zaten gerçek (`ProfileStats`/`ProfileService.getProfileStats` üzerinden) — sadece tıklayınca açılan
+  DETAY listesi sahte. Gerçek yapmak takipçi-listesi sorgusu (yok) ve favoriler tablosu (hiç yok, Arkadram
+  spesifikasyonunda da yok) gerektiriyor — orantısız büyüdüğü için bilerek bırakıldı.
+
+**Karar (öneri, Kaan onayına açık):** C++ çekirdeği çok kullanıcılı/paylaşımlı hiçbir veri için asla senkron
+edemez (dosya tabanlı, ağ kodu yok) — bu yüzden Arkadram'ın orijinal isteği doğru: paylaşılan HER veri (feed,
+mesaj, randevu, CRM, takım, bağlantı, ürün, satış, muhasebe, yorum, portfolyo) Supabase'den gitmeli. Öneri/skorlama
+motoru (ranker/interest/learner, 217 testli, gerçekten iyi mühendislik) çöpe atılmaz ama "backend" rolünden çıkar —
+ileride Supabase'den çekilen veriyle beslenen saf hesaplama modülü olarak ayrı bir faz. Öncelik: önce sistemik
+id-eşleme hatasını düzelt (mevcut Supabase tabloları zaten var, tek desen değişikliği tüm mesaj/randevu/görev/CRM/
+bağlantı/muhasebe akışını çalışır hale getirir), sonra eksik tabloları ekle (businesses, teams/team_members,
+products, finance, reviews, portfolio_media, feed_events, reactions, comments), sonra ölü kodu temizle
+(onesignal_*, kullanılmayan sms_service/appointment_reminder ya bağlanır ya silinir), sonra iki şema setini birleştir.
+
 ## Sıradaki adım
 
 **Tüm 18 adım tamamlandı + genome yazıldı.** 🎉
@@ -513,9 +682,348 @@ open build/macos/Build/Products/Release/hanagram.app
 - Entitlements: sandbox + JIT + network + library validation disabled
 - Dylib: `libhanagram.dylib` otomatik olarak `Contents/Frameworks/` içine kopyalanır
 
-Sonraki olası işler:
-- iOS/Android build pipeline'ı doğrulama (cihaz üzerinde test)
-- Web versiyonu (FFI→HTTP API köprüsü veya WASM dönüşümü gerekir)
-- Bildirim sistemi (mesaj, randevu hatırlatma)
-- Çevrimdışı dayanıklılık (store.flush() sonrası kurtarma)
-- Kalan tech debt: brand.dart (203×2 kopya — app ve admin arasında)
+Sonraki olası işler (ESKİ liste — aşağıdaki 2026-07-30 bölümüne bakılsın, bir kısmı artık tamamlandı):
+- ~~iOS/Android build pipeline'ı doğrulama~~ → aşağıda: Android gerçek APK ile doğrulandı, iOS statik lib doğrulandı.
+- ~~Web versiyonu (FFI→HTTP API köprüsü veya WASM dönüşümü gerekir)~~ → gerek kalmadı, web tamamen Supabase'e taşındı (aşağıya bkz).
+- Bildirim sistemi (mesaj, randevu hatırlatma) — hâlâ açık.
+- Çevrimdışı dayanıklılık (store.flush() sonrası kurtarma) — artık geçersiz, store/flush C++ çekirdeğine özeldi, paylaşılan veri Supabase'e taşındı.
+- Kalan tech debt: brand.dart (203×2 kopya — app ve admin arasında) — hâlâ açık, düşük öncelik.
+
+---
+
+## 2026-07-30 gece — Arkadram v2 migrasyonu + admin panel + native build doğrulaması
+
+**Bağlam:** Kaan tam yetki verdi ("tam yetki sende, herşeyi onaylıyorum") — Hanagram'ın GÖRSEL/marka kısmı
+(splash video, giriş ekranları) aynı kalıyor, ama ÇALIŞAN kısım artık Arkadram'ın konsept modeline göre
+(paylaşılan/çok-kullanıcılı her veri Supabase'den) — "Arkadram v2". C++ çekirdeği artık backend değil,
+sadece tekil-cihaz/offline yardımcı modül (feed ranker gibi ileride saf hesaplama için kullanılabilir).
+
+### Faz 1-4 (önceki oturumda tamamlandı, özet):
+- Sistemik `auth.uid()` vs `users.id` karışıklığı hem Dart servis katmanında hem RLS politika katmanında
+  düzeltildi (`SupabaseService.myDbId()` deseni her yerde).
+- `20260730_fix_rls_id_mismatch_and_new_tables.sql` migration'ı Kaan tarafından SQL Editor'de çalıştırıldı,
+  başarılı ("oldu devam" onayı alındı). customers/conversations/teams/media tabloları + RLS düzeltmeleri canlıda.
+- customer/product/sale/media/review/portfolio/team/feed/discover ekranları sahte veriden gerçek Supabase
+  servislerine taşındı. `app_state.dart` boot artık C++ çekirdeği yokken de çalışıyor (core optional).
+- `profile_screen.dart`: başkasının profiline bakınca kendi verini gösterme hatası düzeltildi
+  (`ProfileService.getPublicProfile` ile gerçek handle-bazlı sorgu).
+
+### Faz 5 — kalan sahte veri taraması (bu gece tamamlandı):
+- `ad_service.dart` yeni oluşturuldu (CRUD; impression/click gerçek ama sıfır — tahmin üretilmedi).
+- `ad_screen.dart`/`ad_sheet.dart`: `businessId` constructor parametresi kaldırıldı (`myDbId()` ile içeriden
+  çözülüyor), `AdService`'e bağlandı. `CupertinoIcons.megaphone` yoktu → `speaker_2` ile değiştirildi.
+- `business_screen.dart`: sahte "12.4K Görüntülenme / 8.7K Etkileşim" başlık kaldırıldı, yerine gerçek
+  `VerificationService.getFollowerCount()` + yeni `PostService.getMyEngagementTotal()` geldi. Daha önce
+  navigasyondan hiç erişilemeyen `AdScreen` için "Reklamlar" aracı eklendi.
+- `referral_screen.dart` (business): sabit `"HANAGRAM-KAAN"` kodu ve sahte ₺ kazanç listesi kaldırıldı,
+  gerçek `ReferralService.getMyCode/getMyReferrals` bağlandı (bu servis zaten doğru çalışıyordu, sadece
+  ekran bağlı değildi). Sahte "Kazançlarım ₺90" bakiye bölümü tamamen silindi (gerçek ödeme/komisyon
+  hesaplama sistemi yok, iddia edilmemeli).
+- `finance_screen.dart`: açıkça etiketlenmiş sahte veri ("Örnek veri — Supabase bağlanınca çekilecek")
+  bulundu, `AccountingService`'e bağlandı (accounting_screen.dart ile AYNI `accounting_entries` tablosu —
+  veri tek yerde, iki ekran aynı kaynağı farklı sunuyor).
+- `packages_screen.dart` — kasıtlı olarak dokunulmadı ("yakında" satın alma akışı, gerçek ödeme altyapısı
+  olmadan sahte bir şey iddia etmemek için bilerek bekletildi).
+- İncelenip bilerek ERTELENEN (Arkadram spesifikasyonunda da yok, orantısız büyürdü): `stat_detail_sheet.dart`
+  (profil istatistik detay listesi, ana sayılar gerçek ama alt-detay listesi hâlâ sahit — takipçi-listesi ve
+  favoriler tablosu yok).
+
+### Admin panel overhaul (Kaan'ın açık isteği: "çok çirkin çok anlamsız", kullanıcı adı/şifre + canlı takip + referans):
+- Supabase Auth'ta admin hesabı REST ile oluşturuldu (`bekaans+hanagramadmin@icloud.com` / `Yenisifre.54`,
+  gerçek admin@hanagram.app domain reddedildi → plus-adres kullanıldı). **E-posta doğrulaması henüz
+  yapılmadı — Kaan'ın gelen kutusunda (bekaans@icloud.com) onay linki var, tıklanması gerekiyor.**
+- `20260731_admin_bypass_and_email_confirm.sql` yazıldı (**HENÜZ ÇALIŞTIRILMADI — Kaan'ın SQL Editor'de
+  çalıştırması gerekiyor**): `users.is_admin` + `is_admin()` SECURITY DEFINER fonksiyonu + tasks/appointments/
+  crm_entries/connections/conversations/messages/business_groups/group_members/customers/accounting_entries/
+  verification_requests politikalarına `OR is_admin()` eklendi + `ads` tablosu + admin'in `public.users`
+  satırı INSERT.
+- `admin_supabase.dart`: `fetchUserDetail` artık conversations + referredUsers da dönüyor;
+  `fetchUserConversations`, `fetchConversationMessages`, `fetchVerificationRequests`, `reviewVerification` eklendi.
+- `admin_login.dart`: kullanıcı adı→e-posta eşlemesi (`admin` → gerçek e-posta), etiket "Kullanıcı adı" oldu.
+- `verifications_tab.dart` (yeni): doğrulama isteklerini filtreleme + belge görüntüleme + onayla/reddet.
+- `users_tab.dart`: kullanıcı detayında referans kodu kartı (profil fotoğrafının altında, Kaan'ın istediği
+  gibi) + "Sohbetler" (salt-okunur mesaj görüntüleme) + "Davet Ettikleri" bölümleri eklendi.
+- `admin_rail.dart`+`main.dart`: 5. sekme "Doğrulamalar" eklendi, konuşma görüntüleme state'i bağlandı.
+
+### Native cross-platform build doğrulaması (gerçek build'ler çalıştırılarak, sadece statik analizle değil):
+- **Android — GERÇEK BAŞARI:** `tools/build-core.sh android` (NDK 28.2.13676358) → 3 ABI (arm64-v8a,
+  armeabi-v7a, x86_64) için `.so` derlendi, `jniLibs/`e kopyalandı. `flutter build apk --release` → **BAŞARILI**,
+  67.8MB APK, native çekirdek gerçekten linklenmiş. Bu, önceki Explore raporunun "Android build yolu yok"
+  varsayımını ÇÜRÜTTÜ — Gradle'ın otomatik `jniLibs/<ABI>/*.so` paketlemesi zaten yeterliymiş, ekstra
+  Gradle/CMake entegrasyonu gerekmiyor.
+- **iOS — çekirdek doğrulandı, Xcode bağlama BİLİNÇLİ OLARAK yapılmadı:** `tools/build-core.sh ios` →
+  `build-ios-device/libhanagram_core.a` (cihaz, arm64) + `build-ios-sim/libhanagram_core.a` (simülatör)
+  başarıyla derlendi. `lipo -info` ve `otool -l` ile gerçek iOS hedefi olduğu doğrulandı (platform=2,
+  minos=16.0 — macOS değil). `nm` ile tüm C ABI sembolleri (`_hg_start`, `_hg_call`, `_hg_stop`, `_hg_free`,
+  `_hg_version`, `_hg_abi_major`, `_hg_abi_minor`) mevcut ve export edilmiş bulundu. **Ancak bu dosyanın
+  kendisinin ÜSTÜNDEKİ "Dağıtım stratejisi" bölümü açıkça "iOS: PWA (Ana Ekrana Ekle) — store'a gerek yok"
+  diyor** — yani Kaan'ın kendi önceki kararı iOS'ta native binary'ye hiç ihtiyaç duymuyor (PWA web build'i
+  kullanıyor, FFI değil). Bu yüzden Xcode projesine (`ios/Runner.xcodeproj/project.pbxproj`) statik lib'i
+  linklemek için riskli/kırılgan `.pbxproj` düzenlemesi YAPILMADI — hem gereksiz (mevcut karara aykırı
+  çalışmak olurdu) hem de test edilemez (gerçek cihaz/imzalama olmadan doğrulanamaz). Statik lib'ler
+  `core/build-ios-*` altında duruyor, ileride gerçek native iOS app kararı alınırsa hazır.
+- **Windows:** Bu Mac'ten cross-compile edilemez (`build-core.sh` zaten "native Windows ortamında yapılmalı"
+  diyor) — dokunulmadı, beklendiği gibi.
+- **Küçük düzeltme:** `build-core.sh`'de Android/Linux fonksiyonlarındaki çıplak `$(nproc)` çağrıları macOS'ta
+  patlıyordu (`nproc: command not found`, zararsız ama gürültülü) — host fonksiyonundaki gibi
+  `$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)` fallback'i eklendi.
+
+### Kaan'ın yapması gereken (benim erişimim yok — service-role key yok, e-posta erişimi yok):
+1. `supabase/migrations/20260731_admin_bypass_and_email_confirm.sql` dosyasını Supabase SQL Editor'de çalıştır.
+2. `bekaans@icloud.com` gelen kutusundaki Supabase e-posta doğrulama linkine tıkla (admin hesabı için).
+   İkisi tamamlanmadan admin paneline `admin`/`Yenisifre.54` ile giriş başarısız olur (`email_not_confirmed`).
+
+### Sıradaki adım (2026-07-30 gece itibariyle) — GÜNCEL, bir önceki paragraf yerini bu alıyor:
+
+**Randevu onay/red/tamamla akışı GERÇEKTEN KIRIKTI, düzeltildi:** `appointment_screen.dart`'ın kendi
+`_appointmentCard`'ı sadece durumu RENKLİ ROZET olarak gösteriyordu, hiçbir dokunma aksiyonu yoktu — kullanıcı
+bir randevuyu onaylayamıyor/reddedemiyor/tamamlayamıyordu (sonsuza kadar "pending" kalıyordu). Bu işi yapması
+gereken `appointment_card.dart` (AppointmentCard widget'ı, Onayla/Reddet/Tamamla butonlarıyla) baştan beri
+HİÇBİR YERDEN çağrılmıyordu (ölü kod) — üstelik durum kelime dağarcığı da uyumsuzdu ('requested' kullanıyordu,
+gerçek şema 'pending' kullanıyor). Çözüm: `appointment_card.dart` silindi (gerçekten ölüydü), gerçek
+`_appointmentCard`'a durum-değiştirme butonları eklendi (`AppointmentReminder.confirmAppointment/
+cancelAppointment` zaten doğruydu, artık `completeAppointment` de eklendi), `_handleStatusChange` ile
+Supabase'e yazıp listeyi tazeliyor.
+
+**Bildirim sistemi (Realtime kısmı) ÇÖKME HATASI içeriyordu, düzeltildi + bağlandı:** `notification_service.dart`'ın
+üç Realtime dinleyicisi (`listenToTasks`, `listenToConnectionRequests`, `listenToAppointments`) hiç çağrılmıyordu
+(bu yüzden hata hiç görünmüyordu) AMA çağrılsaydı ANINDA çökerdi — dönüş tipleri yanlış (`StreamSubscription<Map>`
+`StreamSubscription<List<Map>>`'e, hatta bir `RealtimeChannel` `StreamSubscription<void>`'a zorla `as` ile cast
+ediliyordu, ikisi de geçersiz tip dönüşümü, Dart runtime'da TypeError fırlatır). Düzeltildi: her üçü artık
+`StreamController(onCancel: ...)` deseniyle doğru tipte `StreamSubscription<Map<String,dynamic>>` dönüyor,
+`.cancel()` çağrıldığında altındaki Realtime kanalını da düzgün kapatıyor. Sonra **gerçekten bağlandı**:
+`shell/app_shell.dart` artık uygulama açıkken görev/bağlantı/randevu değişikliklerini canlı dinleyip SnackBar
+ile gösteriyor (`_AppShellState.initState` → `_startRealtimeNotifications`, `dispose` → 3 subscription iptali).
+Yani uygulama AÇIKKEN artık gerçek anlık bildirim var — önceden (push dahil) HİÇBİR bildirim kanalı çalışmıyordu.
+
+**Push bildirim (uygulama KAPALIYKEN) hâlâ çalışmıyor — bu benim çözebileceğim bir şey değil:**
+`NotificationService.sendToUser/sendToAll` → `send-notification` Edge Function → OneSignal REST API'sine
+gidiyor, ve OneSignal `supabase_id` TAG'ine göre hedef cihaz filtreliyor. Ama client tarafında OneSignal SDK'sı
+(`onesignal_native/web/compat.dart`) bu oturumda TAMAMEN kaldırıldı (web'de siyah ekrana sebep olduğu için, bkz.
+git log "fix: remove onesignal_flutter") — yani artık HİÇBİR cihaz kendini bu tag ile işaretlemiyor. Sonuç:
+`sendToUser` çağrısı "başarılı" DÖNER (OneSignal API'si 0 alıcıya ulaşsa bile hata vermez) ama kimseye gerçekte
+ulaşmaz — sessiz bir yalan-başarı. **Bunu düzeltmek Kaan'ın kararı gerektiriyor** (hangi push sağlayıcısı: OneSignal'i
+web-uyumlu şekilde geri mi entegre edelim yoksa Firebase Cloud Messaging'e mi geçelim) VE Kaan'ın kendi hesap/
+kimlik bilgilerini girmesi gerekiyor (OneSignal dashboard, Apple Push sertifikası vb.) — bu yüzden bu oturumda
+DOKUNULMADI, sadece net şekilde işaretlendi. Aynı kategori: `sms_service.dart` (Twilio'ya bağlanıyor, hem
+Twilio kimlik bilgisi hem de `scheduled_reminders` tablosu — bu tablo SADECE `app/supabase/migrations/`
+altındaki ESKİ/hiç çalıştırılmamış şema setinde var, canlı şemada yok — eksik) da tamamen orantılı bir yeni
+özellik gerektirdiği ve hiçbir ekrandan çağrılmadığı için bilerek dokunulmadı.
+
+**Sonuç — bu oturumda gerçekten kapatılan boşluklar:** randevu durumu değiştirme (tamamen kırıktı → çalışıyor),
+uygulama-içi canlı bildirim (hiç yoktu, üstelik altındaki kod çökerdi → çalışıyor), build script taşınabilirlik
+(`nproc`), DURUM.md güncel değildi → güncellendi. `dart analyze` (app + admin) ve `flutter build web --release`
+bu oturumun TÜM değişikliklerinden sonra baştan çalıştırıldı, ikisi de temiz/başarılı.
+
+**Açık kalan (dış hesap/kimlik bilgisi gerektirdiği için bilerek ertelenen):** gerçek push bildirim (OneSignal/FCM
+kararı + kimlik bilgisi Kaan'dan), SMS hatırlatma sistemi (Twilio kararı + kimlik bilgisi Kaan'dan + eksik tablo).
+Native build cephesinde başka açık iş yok (Android doğrulandı, iOS PWA stratejisiyle zaten gereksiz, Windows bu
+ortamdan imkansız).
+
+### Ek tarama: kayıt akışı ve ölü davet-servisi temizliği (aynı gece, devamı)
+
+**Alarm ama yanlış alarm:** `AppState.checkInvite()`/`redeem()` (eski, tamamen C++ çekirdeğine bağlı yerel davet
+akışı) çekirdek yokken (web'de) direkt hata döndürüyordu — ilk bakışta "web'de kimse kayıt olamıyor" gibi
+göründü. Ama gerçek kayıt ekranı (`features/onboarding/invite_gate.dart`) bu metotları HİÇ ÇAĞIRMIYORMUŞ —
+zaten tamamen kendi başına, tamamen Supabase-native bir akışı var (`ReferralService.verifyCode/
+isUsernameAvailable/createProfile` + gerçek `auth.signInWithOtp/verifyOTP/signInWithPassword`). Yani gerçek
+kayıt/giriş her zaman çalışıyordu — sorun sadece KULLANILMAYAN eski API yüzeyindeydi.
+
+**Temizlik yapıldı (doğrulanmış ölü kod):** `invite_service.dart` (tamamen C++ çekirdeğinin yerel `admin.*`/
+`invite.*` komutlarına bağlı, çok-kullanıcılı sisteme hiç uymayan eski davet sistemi) silindi; `app_state.dart`'tan
+`inviteService` alanı, `checkInvite`/`redeem`/`myInviteCodes`/`membership`/`_syncToSupabase` — hepsi doğrulanmış
+sıfır çağrılı — kaldırıldı. `boot()` artık çekirdek varsa sadece `_core`'u set ediyor, yoksa sadece null bırakıyor
+(davet-servisi kurulumu yoktu zaten gereksizdi). `dart analyze` + `flutter build web --release` bu temizlikten
+sonra tekrar çalıştırıldı, ikisi de temiz.
+
+**Küçük ek not (düzeltilmedi, zaten belgelenen push sorununun bir başka görünümü):** `referral_service.dart`'ın
+`_sendReferralNotification`'ı `_db.rpc('send_notification', ...)` çağırıyor — böyle bir Postgres fonksiyonu HİÇBİR
+migration'da tanımlı değil, yani bu çağrı her zaman sessizce başarısız oluyor (try/catch yutuyor). Referans
+bildirimleri de dahil olmak üzere HİÇBİR bildirim şu an gerçekten push olarak ulaşmıyor — yukarıdaki "push
+bildirim çalışmıyor" bulgusunun üçüncü görünümü, ayrı bir sorun değil, aynı kök nedenin (gerçek push sağlayıcısı
+yok) başka bir çağrı noktası. Kaan push sağlayıcısına karar verince hepsi birden tek bir doğru Edge Function/RPC
+üzerinden düzeltilebilir.
+
+### Ek tarama: global "+" (içerik oluştur) butonu boştu, gerçek forma bağlandı
+
+`shell/app_shell.dart`'taki HER YERDE görünen ana "+" butonu (side rail'de + telefonda alt bar üstünde) az önce
+`CreateSheet` adında kasıtlı bir ÇEKMECE gösteriyordu: çekiç ikonu + "Yakında, içerik oluşturma özellikleri şu
+an rafa kaldırıldı" yazısı — yani uygulamanın EN GÖRÜNÜR aksiyon butonu hiçbir şey yapmıyordu. Ama gerçek,
+çalışan bir gönderi-paylaşma formu (`shell/compose_sheet.dart` → `ComposeSheet`, `AppScope.createPost()` ile
+gerçek Supabase'e yazıyor) zaten VARDI ve `feed_screen.dart`'ın kendi yerel "+" butonundan zaten çalışıyordu —
+sadece global butona hiç bağlanmamıştı (aynı "gerçek uygulama var ama kablosu çekilmemiş" deseni, appointment
+ve notification bulgularıyla aynı gece üçüncü örneği). Düzeltildi: global buton artık gerçek `ComposeSheet`'i
+açıyor, kullanılmayan `create_sheet.dart` silindi. Bu sırada `ComposeSheet`'in kendi İKİNCİL bir hatası da
+bulundu+düzeltildi: metin kutusuna `onChanged` yoktu, yani SADECE yazı yazıp hiç konu etiketi seçmeyen kullanıcı
+için "Paylaş" butonu hiçbir zaman aktif olmuyordu (yalnızca bir konu çipine dokunmak `setState` tetikleyip
+butonu güncelliyordu) — artık yazarken de buton doğru güncelleniyor.
+
+**Not — bu değişiklik tarayıcıda GÖRSEL olarak doğrulanmadı:** `dart analyze` temiz, `flutter build web --release`
+başarılı, ve `ComposeSheet` zaten feed ekranından çalıştığı kanıtlanmış aynı widget — ama gerçek girişli bir
+oturumla tıklayıp denemek için Kaan'ın kendi hesabıyla giriş yapması gerekiyor (kimlik bilgilerini benim
+girmem güvenlik kuralım gereği yasak). Kaan uyandığında bir dakikalığına global "+" butonuna dokunup formun
+açıldığını görsün yeter.
+
+### Ek tarama: eski (C++ çekirdek dönemi) task/takvim arayüzü tamamen ölüydü, temizlendi
+
+Sistematik "hiç çağrılmayan public widget" taraması (her core servisin ardından, appointment_card.dart'ın
+bulunduğu yöntemin genelleştirilmiş hâli) şunu ortaya çıkardı: `appointment_sheet.dart` (`AppointmentSheet`,
+eski `app.core.call('appointment.slots'/'appointment.create', ...)` kullanan randevu formu — gerçek ekran zaten
+kendi `_AppointmentAddSheet`'ini kullanıyor) ve TÜM eski task/takvim gösterge kümesi (`widgets/task_widgets.dart`
+→ TaskTabBtn/MiniStat/TaskCard/WorkerCard, `widgets/daily_task_tile.dart`, `widgets/calendar_header.dart`,
+`widgets/task_models.dart` → sahte `Worker.sampleWorkers` içeriyordu, `models/task_item.dart`, `models/
+calendar_day.dart` → sahte `CalendarDay.sampleWeek()` içeriyordu) hiçbir yerden çağrılmıyordu — gerçek ekranlar
+(`task_screen.dart`, `calendar_view.dart`) çoktan `core/task_service.dart` üzerinden Supabase'e bağlanmış
+durumdaydı. Hepsi (9 dosya + bu gecenin diğer temizlikleriyle birlikte toplam 12 dosya) silindi. Ayrıca
+`invite_widgets.dart` içindeki `MembershipRow`/`FirstRunCodes` (silinen `InviteService`'in kalıntıları,
+artık var olmayan `membership`/`myInviteCodes` alanlarını gösteriyorlardı) kaldırıldı.
+
+**Bilerek dokunulmayan tek orphan:** `widgets/desktop_cashier_mode.dart` (`DesktopCashierMode`) — masaüstü
+POS/kasa arayüzü, hiçbir yerden çağrılmıyor AMA diğerlerinin aksine hiçbir eski/yeni backend'e bağlı değil
+(sahte veri de yok, sadece boş UI iskeleti) ve Kaan bu oturumda hiç "kasa modu" istemedi — silmek yerine
+olduğu gibi bırakıldı, ileride gerçek bir özellik olarak ele alınabilir.
+
+Bu son temizlik turundan sonra `dart analyze` (app) tekrar temiz, `flutter build web --release` tekrar
+başarılı — bu gecenin TÜM silme/düzeltme işlemlerinden sonra toplam 4. kez baştan doğrulandı.
+
+### Son bulgu: "çekirdek yüklenemedi" hata ekranı de facto ölüydü + `flutter build macos` ile gerçek FFI yolu doğrulandı
+
+`AppState.core` getter'ının (throw-if-null) hiçbir ekrandan hiç çağrılmadığı ortaya çıktı — yani C++ çekirdeği artık
+Dart tarafındaki TEK BİR gerçek ekran/servis tarafından bile kullanılmıyor (hepsi Supabase'e taşındı). Daha da
+önemlisi: `boot()` (bu oturumun önceki bir turunda, Faz 4'te) `status`'u çekirdek başarısız olsa bile HER ZAMAN
+`CoreStatus.ready` yapacak şekilde değiştirilmişti ama `CoreStatus.failed` enum değeri ve onu tüketen
+`main.dart`'taki `_CoreFailure` ekranı ("Çekirdek yüklenemedi" + cmake talimatları) silinmemiş, ulaşılamaz halde
+kalmıştı. `status = CoreStatus.failed` hiçbir yerde ATANMADIĞI doğrulandıktan sonra hem enum değeri hem
+`_CoreFailure` widget'ı hem kullanılmayan `failureDetail` alanı kaldırıldı.
+
+**Bilinçli olarak KALDIRILMAYAN:** `_core`/`HanagramCore.start()`'ın kendisi, `core`/`coreVersion` getter'ları —
+şu an gerçekten çağrılmıyor olsalar da, önceki bir turda DURUM.md'ye zaten yazılmış bir karar var: çekirdeğin
+içindeki öneri/skorlama motoru (ranker/interest/learner, 217 test) çöpe atılmayacak, ileride "Supabase'den
+gelen veriyle beslenen saf hesaplama modülü" olarak geri getirilebilir — bu, Kaan'ın onayına açık bırakılmış bir
+mimari karardı, bu gece tek taraflı olarak geri alınmadı. `boot()` çekirdeği yüklemeye devam ediyor (ucuz,
+zararsız), sadece artık hiçbir ekran ona bağımlı değil.
+
+**Doğrulama:** Bu değişiklikten sonra hem `flutter build web --release` HEM `flutter build macos --release`
+(gerçek FFI/çekirdek yükleme yolunu çalıştıran platform) baştan çalıştırıldı — macOS derlemesi `hanagram.app`
+(56.5MB) olarak başarıyla tamamlandı, tek uyarı ilgisiz bir üçüncü parti pakette (video_player_avfoundation,
+deprecated API uyarısı, koddan kaynaklanmıyor). Bu, tonight'ın TÜM Dart katmanı değişikliklerinin gerçek native
+çekirdek yükleme yolunda da (sadece web stub'ında değil) sorunsuz çalıştığını doğruluyor.
+
+---
+
+## 2026-07-30 gündüz — admin girişi + migration Kaan tarafından tamamlandı, ayarlar ekranı taraması
+
+Kaan admin paneline `admin`/`Yenisifre.54` ile giriş yaptı VE `20260731_admin_bypass_and_email_confirm.sql`'i
+çalıştırdı — iki manuel adım da tamam, admin paneli artık tam olarak canlı ve erişilebilir. (Kaan'ın e-posta
+onay linkinde `ERR_CONNECTION_REFUSED` görmesi endişe vermedi — Supabase maili SUNUCU tarafında, yönlendirmeden
+ÖNCE onaylıyor; sadece yönlendirme hedefi olan localhost URL'i boştaydı, kozmetik bir hataydı.)
+
+**Yeni bulgu: Ayarlar ekranındaki bildirim/kişiselleştirme anahtarlarının çoğu hiçbir şeye bağlı değildi.**
+`settings_provider.dart`'taki 6 toggle'dan (`notificationsEnabled`, `messageNotifications`, `appointmentReminders`,
+`showOnlineStatus`, `showReadReceipts`, `hapticFeedback`) HİÇBİRİ `settings/` klasörü DIŞINDA hiçbir yerden
+okunmuyordu — hepsi SharedPreferences'a yazılıp duran, hiçbir gerçek davranışı değiştirmeyen "yer tutucu"
+anahtarlardı. İkiye ayırdım:
+
+- **`notificationsEnabled` ("Bildirimleri aç") + `appointmentReminders` ("Randevu hatırlatmaları")** → GERÇEKTEN
+  BAĞLANDI: bu gece kurulan `app_shell.dart`'taki canlı bildirim SnackBar sistemi artık bu iki ayarı
+  okuyor — ana anahtar kapalıysa hiçbir realtime bildirim başlamıyor, randevu anahtarı özel olarak sadece
+  randevu SnackBar'ını kapatıyor (görev/bağlantı bildirimleri ana anahtar açıkken çalışmaya devam ediyor).
+- **`messageNotifications` ("Mesaj bildirimleri"), `showOnlineStatus`, `showReadReceipts`, `hapticFeedback`** →
+  BİLEREK DOKUNULMADI. Sohbet mesajları zaten kendi ayrı gerçek zamanlı sistemiyle her zaman güncelleniyor
+  (bu bir "bildirim" değil, çekirdek işlev — kapatılabilir olmamalı), yani `messageNotifications`'ın bağlanacağı
+  ayrı bir "mesaj bildirimi" kategorisi hiç kurulmamış. `showOnlineStatus`/`showReadReceipts` için gereken
+  altyapı (çevrimiçi durumu / okundu bilgisi) şemada YOK (`last_read_at` var ama sadece okunmamış sayısı için
+  kullanılıyor, karşı tarafa "gördü" göstermek için değil) — bunlar "kopan kablo" değil, hiç kurulmamış YENİ
+  özellikler, bu gecenin "bağla" kapsamının dışında bilerek bırakıldı. `hapticFeedback` için de kodda hiçbir
+  `HapticFeedback.*` çağrısı yok. Bu 4 anahtar hâlâ görsel olarak var ama işlevsiz — istersen ayrı bir iş
+  olarak ele alabiliriz.
+
+`dart analyze` + `flutter build web --release` bu değişiklikten sonra da temiz/başarılı.
+
+---
+
+## 2026-07-30 gündüz (devam) — "tema çalışmıyor" bulgusu + kalan 4 ayarın gerçek özelliğe bağlanması
+
+**Tema bugu araştırıldı, SONUÇ: mekanizma doğru çalışıyor, tekrar üretilemedi.** Kaan "ayarlarda tema
+çalışmıyor" dedi (web tarayıcı, dokununca hiçbir şey değişmiyor). Derin kod incelemesi (SettingsProvider →
+notifyListeners → InheritedNotifier + explicit listener → HgTheme rebuild zinciri) hatasız göründü. Şüpheden
+kurtulmak için GEÇİCİ bir hata ayıklama köküyle (`main.dart`'ta oturum kontrolünü atlayıp doğrudan
+`SettingsScreen`'i gösteren, test sonrası tamamen geri alınan bir widget) gerçek bir `flutter build web` alınıp
+tarayıcıda görsel olarak test edildi: **Otomatik → Açık → Koyu geçişleri anında ve doğru çalıştı** (arka plan,
+metin renkleri hepsi değişti). Yani kod SAĞLAM — Kaan'ın gördüğü sorun muhtemelen taray（ıcı önbelleği/PWA
+service worker'ın eski bir sürümü sunması ya da farklı bir URL/build test edilmesi. Kaan'a şunlar önerildi:
+sert yenileme (Cmd+Shift+R) dene, ya da hangi adresi/build'i test ettiğini netleştir.
+
+**Kalan 4 ayar anahtarı gerçek özelliğe bağlandı (Kaan: "evet hepsini yap"):**
+
+- **`hapticFeedback` ("Dokunsal geri bildirim"):** `SettingsProvider.hapticTap()` eklendi (açıksa
+  `HapticFeedback.lightImpact()`), 5 gerçek dokunma noktasına bağlandı: alt bar/yan ray sekme geçişi (her
+  ikisi de `_selectTab` üzerinden), feed beğeni butonu, randevu onay/red/tamamla butonları, mesaj gönder butonu.
+- **`messageNotifications` ("Mesaj bildirimleri"):** Daha önce hiçbir bildirim türüyle eşleşmiyordu — artık
+  gerçek bir eşleşmesi var. `NotificationService.listenToMessages()` (yeni, global `messages` INSERT dinleyici
+  — Realtime join desteklemediği için TÜM mesajları alır) eklendi; `app_shell.dart` her gelen mesaj için
+  gönderenin benden farklı olduğunu VE benim o konuşmanın üyesi olduğumu kontrol edip gönderenin adıyla
+  SnackBar gösteriyor. Bilinen sınırlama: şu an açık olan sohbet ekranında olsan bile bildirim gösterir (hangi
+  ekranın açık olduğunu global seviyede takip eden bir mekanizma yok — orantısız büyüyeceği için bu gece
+  eklenmedi).
+- **`showOnlineStatus` ("Çevrimiçi görünürlük") + `showReadReceipts` ("Okundu bilgisi"):** Bu ikisi BAŞKA
+  kullanıcıların istemcisinde okunması gerektiği için yerel SharedPreferences yetmiyordu — `users` tablosuna
+  `last_seen_at`, `show_online_status`, `show_read_receipts` kolonları eklendi (yeni migration:
+  `supabase/migrations/20260801_settings_features.sql`, **HENÜZ ÇALIŞTIRILMADI**). `SettingsProvider.
+  toggleOnlineStatus/toggleReadReceipts` artık yerelin yanı sıra bu kolonlara da yazıyor;
+  `SettingsProvider.pingOnline()` uygulama her açıldığında `last_seen_at`'i günceller (gerçek zamanlı presence
+  değil, basit "son aktif zaman" yaklaşımı). `profile_screen.dart` başkasının profilinde (sadece ONUN
+  `show_online_status`'u açıksa) "Çevrimiçi" / "Son görülme: X dk/saat/gün önce" gösteriyor.
+  `message_service.dart`'a `getOtherReadReceipt()` eklendi (karşı tarafın `last_read_at`'i + `show_read_receipts`
+  tercihi); `chat_detail_screen.dart` artık kendi gönderdiğim son mesajlarda (8 saniyede bir tazelenen) gerçek
+  "Görüldü" (çift tik, mavi) / "Gönderildi" (tek tik, mor) ayrımı gösteriyor — ki bu ikon ÖNCEDEN hep aynı
+  statik mor tikti, hiçbir anlamı yoktu.
+
+**Doğrulama:** Tüm bu değişiklikler için `dart analyze` temiz. Ayrıca aynı geçici debug-kök tekniğiyle gerçek
+bir tarayıcıda 4 yeni toggle'a tıklanıp (`read_console_messages` ile) hiçbir JS hatası/çökme olmadığı
+doğrulandı — sadece önceden bilinen zararsız WebGL/service-worker logları var. Backend yazma tarafı (gerçek
+oturum + migration olmadan test edilemez) migration çalıştırıldıktan sonra Kaan'ın kendi hesabıyla
+doğrulanmalı. Debug-kök tamamen geri alındı, `main.dart` temiz halinde; son `flutter build web --release`
+başarılı.
+
+**Kaan'ın yapması gereken (yeni):** `supabase/migrations/20260801_settings_features.sql`'i SQL Editor'de
+çalıştır — bu olmadan online-durum/okundu-bilgisi kolonları yok, ilgili yazma/okuma işlemleri sessizce
+no-op olur (hata vermez, sadece hiçbir şey kaydetmez). **[GÜNCELLEME: Kaan bu migration'ı çalıştırdığını
+bildirdi — tamamlandı.]**
+
+---
+
+## 2026-07-30 öğleden sonra — Uygulama ikonu değişti + GitHub Pages sitesi geri getirildi
+
+**Uygulama ikonu:** Kaan `Desktop/Reklam/hanagram/uygulama logo.png` dosyasını tüm platformlarda ikon olarak
+istedi, ama dıştaki siyah kareyi istemedi — sadece logo + etrafındaki koyu antrasit karo kalsın. Python/PIL ile
+işlendi: siyah kenar boşluğu kırpıldı, yuvarlak karonun köşelerinde kalan siyah artıklar antrasit renkle
+(`RGB(25,25,35)`, orijinal karo rengiyle örtüşüyor) dolduruldu → tam kare, kenardan kenara antrasit dolgulu,
+ortada logo olan temiz bir 1024×1024 master ikon çıktı (`app/assets/icon/app_icon.png`, aynısı
+`admin/assets/icon/app_icon.png`'e de kopyalandı). `flutter_launcher_icons` paketi (yeni dev_dependency, hem
+app hem admin pubspec.yaml'da yapılandırıldı) ile iOS/Android/macOS/Windows/Web için TÜM platform ikonları
+otomatik üretildi (`dart run flutter_launcher_icons`). `dart analyze` + build'ler temiz; ayrıca tarayıcıda
+gerçek dosyalar (favicon, Icon-512 vb.) doğrulandı.
+
+**GitHub Pages ("github.hanagram") sitesi 404 veriyordu — kök neden bulundu ve düzeltildi:**
+Kaan "PC kapalıyken de açık kalması gerekmiyor muydu" diye sordu. Araştırma: `gh-pages` dalı GERÇEKTEN canlı
+ve doğru yapılandırılmış (`bekaans.github.io/hanagram/`, Pages ayarları doğru) — ama dalın İÇERİĞİ bir önceki
+"deploy" commit'i (680b49f, 2026-07-29 04:55) tarafından YANLIŞLIKLA komple silinmiş, geriye sadece bir
+`.gitkeep` kalmıştı (bir önceki commit'te tam bir web build vardı — 42 dosya, 240 bin+ satır — sonraki commit
+hepsini silip hiçbir şey eklemeden commit'lenmiş, muhtemelen "eskiyi temizle → yeniyi kopyala" adımlarından
+ikincisi hiç çalışmamış). Bu yüzden Pages API "başarıyla build edildi" diyordu ama sunduğu dal gerçekten boştu
+→ 404. PC'nin açık/kapalı olmasıyla hiç ilgisi yoktu.
+
+**Düzeltme:** Geçici bir `git worktree` ile `gh-pages` dalına dokunmadan ayrı bir dizinde çalışıldı — ana
+`main` dalındaki hiçbir şeye dokunulmadı. Doğru `--base-href /hanagram/` ile (GitHub Pages alt-yol altında
+çalıştığı için gerekli — varsayılan `/` ile main.dart.js/assets hiç yüklenmezdi, bu da muhtemelen sitenin
+düzgün çalışmasını engelleyen İKİNCİ bir gizli hataydı, ilk kez şimdi keşfedildi) yeni bir `flutter build web`
+alındı, yeni ikonla birlikte; `.nojekyll` eklendi (GitHub'ın Jekyll işlemcisinin bazı dosyaları es geçmesini
+engeller); `manifest.json`'daki PWA `scope` değeri bu deploy'a özel olarak `/hanagram/` yapıldı (kaynak
+`web/manifest.json` kasıtlı olarak `/` bırakıldı — ana strateji hâlâ kök dizine deploy edilecek Vercel, GitHub
+Pages ikincil/yedek kanal). Commit'lenip `origin/gh-pages`'e push edildi, worktree temizlendi.
+
+**Doğrulama:** `curl -I https://bekaans.github.io/hanagram/` → **200** (önceden 404), `main.dart.js` ve
+`favicon.png` doğru alt-yoldan 200 dönüyor, tarayıcıda gerçek sayfa açılıp gerçek "Davet kodun" ekranı
+göründü, konsol hatasız. Site artık gerçekten canlı ve Kaan'ın bilgisayarından bağımsız (GitHub'ın kendi
+sunucuları üzerinden, tam da olması gerektiği gibi).
