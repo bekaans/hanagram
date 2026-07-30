@@ -97,14 +97,20 @@ class MediaThumb extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (path.isNotEmpty)
-              PlatformImage(
-                file: File(path),
+            if (path.isEmpty)
+              _placeholder(c)
+            else if (path.startsWith('http'))
+              Image.network(
+                path,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => _placeholder(c),
               )
             else
-              _placeholder(c),
+              PlatformImage(
+                file: File(path),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _placeholder(c),
+              ),
             if (media.isVideo)
               Positioned(
                 right: 6,

@@ -17,7 +17,7 @@ class AppointmentReminder {
   /// Her 3 saatte bir çağrılmalı (uygulama açılırken veya arka planda).
   static Future<int> sendReminders() async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return 0;
 
       // Yarının tarihini hesapla
@@ -74,7 +74,7 @@ class AppointmentReminder {
   /// Randevuyu onayla.
   static Future<bool> confirmAppointment(String appointmentId) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return false;
 
       // Randevunun sahibi mi kontrol et (AuthZ — guvenli-kod kuralı 4)
@@ -109,7 +109,7 @@ class AppointmentReminder {
           final attendeeProfile = await _db
               .from('users')
               .select('full_name')
-              .eq('auth_id', userId)
+              .eq('id', userId)
               .maybeSingle();
           final attendeeName =
               attendeeProfile?['full_name'] as String? ?? 'Birisi';
@@ -132,10 +132,38 @@ class AppointmentReminder {
     }
   }
 
+  /// Randevuyu tamamlandı olarak işaretle (onaylanmış bir randevu için).
+  static Future<bool> completeAppointment(String appointmentId) async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return false;
+
+      final appt = await _db
+          .from('appointments')
+          .select('id, attendee_id, created_by')
+          .eq('id', appointmentId)
+          .maybeSingle();
+
+      if (appt == null) return false;
+
+      final attendeeId = appt['attendee_id'] as String?;
+      final createdBy = appt['created_by'] as String?;
+      if (attendeeId != userId && createdBy != userId) return false;
+
+      await _db.from('appointments').update({
+        'status': 'completed',
+      }).eq('id', appointmentId);
+
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Randevuyu iptal et.
   static Future<bool> cancelAppointment(String appointmentId) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return false;
 
       // Randevunun sahibi mi kontrol et (AuthZ)
@@ -170,7 +198,7 @@ class AppointmentReminder {
           final cancelerProfile = await _db
               .from('users')
               .select('full_name')
-              .eq('auth_id', userId)
+              .eq('id', userId)
               .maybeSingle();
           final cancelerName =
               cancelerProfile?['full_name'] as String? ?? 'Birisi';

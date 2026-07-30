@@ -1,13 +1,12 @@
 // Hanagram — reklam yönetimi ekranı
 //
 // İşletmenin reklam listesini gösterir, arama destekler, ekleme/düzenleme
-// sheet'ini açar. Tüm iş mantığı C++ çekirdekte.
+// sheet'ini açar. Veri Supabase ads tablosundan gelir.
 import 'package:flutter/material.dart';
-import '../../core/app_state.dart';
+import '../../core/ad_service.dart';
 import 'package:hanagram_design/design.dart';
 import 'ad_item.dart';
 import 'ad_sheet.dart';
-import 'core_error_helper.dart';
 
 class AdScreen extends StatefulWidget {
   const AdScreen({super.key});
@@ -19,7 +18,6 @@ class AdScreen extends StatefulWidget {
 class _AdScreenState extends State<AdScreen> {
   List<AdItem> _ads = const [];
   bool _isLoading = true;
-  String? _error;
   String _query = '';
 
   @override
@@ -29,55 +27,29 @@ class _AdScreenState extends State<AdScreen> {
   }
 
   Future<void> _loadAds() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-    try {
-      final app = AppScope.of(context);
-      final bizId = app.session!.userId;
-      final result = app.core.call('ad.list', {
-        'businessId': bizId,
-        'query': _query,
-      });
-      final items = (result['items'] as List?) ?? const [];
-      _ads = items
-          .map((e) =>
-              AdItem.fromJson((e as Map).cast<String, dynamic>()))
-          .toList();
-    } on Exception catch (e) {
-      _error = extractErrorMessage(e);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_error ?? 'Yüklenirken hata')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    setState(() => _isLoading = true);
+    final result = await AdService.getAds(query: _query);
+    _ads = result.map((e) => AdItem.fromJson(e)).toList();
+    if (mounted) setState(() => _isLoading = false);
   }
 
   void _openAddSheet() {
-    final app = AppScope.of(context);
-    final bizId = app.session!.userId;
     showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => AdSheet(businessId: bizId),
+      builder: (_) => const AdSheet(),
     ).then((added) {
       if (added == true) _loadAds();
     });
   }
 
   void _openEditSheet(AdItem ad) {
-    final app = AppScope.of(context);
-    final bizId = app.session!.userId;
     showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => AdSheet(businessId: bizId, ad: ad),
+      builder: (_) => AdSheet(ad: ad),
     ).then((updated) {
       if (updated == true) _loadAds();
     });

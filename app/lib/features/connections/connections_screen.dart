@@ -129,7 +129,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen>
                           final uname =
                               u['username'] as String? ?? '';
                           final uid =
-                              u['auth_id'] as String? ?? '';
+                              u['id'] as String? ?? '';
                           return ListTile(
                             leading: Avatar(name: name, size: 36),
                             title: Text(name,

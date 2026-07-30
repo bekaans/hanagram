@@ -51,6 +51,21 @@ class ProfileService {
 
   static SupabaseClient get _db => SupabaseService.client;
 
+  /// Bir kullanıcının herkese açık profilini kullanıcı adına göre getir
+  /// (başkasının profilini görüntülerken kullanılır).
+  static Future<Map<String, dynamic>?> getPublicProfile(String handle) async {
+    try {
+      return await _db
+          .from('users')
+          .select('id, auth_id, full_name, username, bio, sector, account_type, '
+              'last_seen_at, show_online_status')
+          .eq('username', handle)
+          .maybeSingle();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Kullanıcının profil istatistiklerini getir.
   static Future<ProfileStatsData> getProfileStats(
       String targetAuthId) async {

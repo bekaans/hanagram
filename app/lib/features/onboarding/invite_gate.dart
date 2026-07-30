@@ -189,6 +189,7 @@ class _InviteGateState extends State<InviteGate> {
               _loginError = 'Profil bulunamadı. Kayıt olmayı deneyin.';
             });
             await SupabaseService.client.auth.signOut();
+            SupabaseService.clearCache();
           }
         }
       } else {

@@ -65,9 +65,15 @@ admin/node_modules/
 admin/.next/
 admin/out/
 
-# Core build
+# Core build — tools/build-core.sh üretir her platform için kendi klasörünü
+# (build-macos, build-android-<abi>, build-ios-device, build-ios-sim, ...)
 core/build/
+core/build-*/
 core/target/
+
+# Native derlenmiş çekirdek kütüphaneleri — tools/build-core.sh android ile
+# yeniden üretilir, commit'lenmez (platform/mimari başına yüzlerce MB).
+app/android/app/src/main/jniLibs/
 
 # Tools
 tools/node_modules/

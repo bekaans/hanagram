@@ -4,8 +4,10 @@
 // Müşteri adına göre arama: tarih, saat, onay/red durumu gösterilir.
 import 'package:flutter/material.dart';
 
+import '../../core/appointment_reminder.dart';
 import '../../core/task_service.dart';
 import 'package:hanagram_design/design.dart';
+import '../settings/settings_provider.dart';
 
 class AppointmentScreen extends StatefulWidget {
   const AppointmentScreen({super.key});
@@ -39,22 +41,12 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
 
   Future<void> _loadAppointments() async {
     setState(() => _isLoading = true);
-    try {
-      final items = await TaskService.getAppointmentsForDate(_selectedDate);
-      if (mounted) {
-        setState(() {
-          _appointments = items;
-          _isLoading = false;
-        });
-      }
-    } on Exception catch (_) {
-      // Supabase yoksa örnek randevuları göster
-      if (mounted) {
-        setState(() {
-          _appointments = _sampleAppointments();
-          _isLoading = false;
-        });
-      }
+    final items = await TaskService.getAppointmentsForDate(_selectedDate);
+    if (mounted) {
+      setState(() {
+        _appointments = items;
+        _isLoading = false;
+      });
     }
   }
 
@@ -82,6 +74,27 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
           _searchLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _handleStatusChange(String id, String action) async {
+    SettingsScope.of(context).hapticTap();
+    final ok = switch (action) {
+      'confirmed' => await AppointmentReminder.confirmAppointment(id),
+      'completed' => await AppointmentReminder.completeAppointment(id),
+      _ => await AppointmentReminder.cancelAppointment(id),
+    };
+    if (!mounted) return;
+    if (ok) {
+      if (_isSearching) {
+        await _searchAppointments(_searchCtrl.text);
+      } else {
+        await _loadAppointments();
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Güncellenemedi, tekrar deneyin.')),
+      );
     }
   }
 
@@ -319,90 +332,131 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
 
   Widget _appointmentCard(HgColors c, Appointment a) {
     final statusColor = switch (a.status) {
-      'confirmed' => c.success,
+      'confirmed' => c.blue,
+      'completed' => c.success,
       'cancelled' => c.danger,
       _ => c.warning,
     };
     final statusLabel = switch (a.status) {
       'confirmed' => 'Onaylandı ✓',
+      'completed' => 'Tamamlandı',
       'cancelled' => 'İptal ✗',
       _ => 'Bekliyor',
     };
     final statusIcon = switch (a.status) {
       'confirmed' => Icons.check_circle_outline,
+      'completed' => Icons.task_alt,
       'cancelled' => Icons.cancel_outlined,
       _ => Icons.schedule,
     };
+    final canAct = a.status == 'pending' || a.status == 'confirmed';
 
     return HgCard(
       padding: const EdgeInsets.all(HgSpace.md),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 4,
-            height: 56,
-            decoration: BoxDecoration(
-              color: statusColor,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: HgSpace.md),
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(HgRadius.sm),
-            ),
-            child: Icon(statusIcon, size: 18, color: statusColor),
-          ),
-          const SizedBox(width: HgSpace.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(a.title,
-                    style: HgText.bodyStrong
-                        .copyWith(color: c.text)),
-                const SizedBox(height: 2),
-                Row(
+          Row(
+            children: [
+              Container(
+                width: 4,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: HgSpace.md),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(HgRadius.sm),
+                ),
+                child: Icon(statusIcon, size: 18, color: statusColor),
+              ),
+              const SizedBox(width: HgSpace.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.calendar_today,
-                        size: 12, color: c.textFaint),
-                    const SizedBox(width: 4),
-                    Text('${a.date.day.toString().padLeft(2, '0')}.'
-                        '${a.date.month.toString().padLeft(2, '0')}.'
-                        '${a.date.year}',
-                        style: HgText.caption
-                            .copyWith(color: c.textMuted)),
-                    const SizedBox(width: HgSpace.md),
-                    Icon(Icons.access_time,
-                        size: 12, color: c.textFaint),
-                    const SizedBox(width: 4),
-                    Text(a.startTime,
-                        style: HgText.caption
-                            .copyWith(color: c.textMuted)),
+                    Text(a.title,
+                        style: HgText.bodyStrong
+                            .copyWith(color: c.text)),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today,
+                            size: 12, color: c.textFaint),
+                        const SizedBox(width: 4),
+                        Text('${a.date.day.toString().padLeft(2, '0')}.'
+                            '${a.date.month.toString().padLeft(2, '0')}.'
+                            '${a.date.year}',
+                            style: HgText.caption
+                                .copyWith(color: c.textMuted)),
+                        const SizedBox(width: HgSpace.md),
+                        Icon(Icons.access_time,
+                            size: 12, color: c.textFaint),
+                        const SizedBox(width: 4),
+                        Text(a.startTime,
+                            style: HgText.caption
+                                .copyWith(color: c.textMuted)),
+                      ],
+                    ),
+                    if (a.attendeeName.isNotEmpty)
+                      Text('Katılımcı: ${a.attendeeName}',
+                          style: HgText.caption
+                              .copyWith(color: c.textFaint)),
                   ],
                 ),
-                if (a.attendeeName.isNotEmpty)
-                  Text('Katılımcı: ${a.attendeeName}',
-                      style: HgText.caption
-                          .copyWith(color: c.textFaint)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius:
+                      BorderRadius.circular(HgRadius.pill),
+                ),
+                child: Text(statusLabel,
+                    style: HgText.small
+                        .copyWith(color: statusColor)),
+              ),
+            ],
+          ),
+          if (canAct) ...[
+            const SizedBox(height: HgSpace.sm),
+            Row(
+              children: [
+                if (a.status == 'pending') ...[
+                  _StatusButton(
+                    label: 'Onayla',
+                    color: c.success,
+                    onTap: () => _handleStatusChange(a.id, 'confirmed'),
+                  ),
+                  const SizedBox(width: HgSpace.sm),
+                  _StatusButton(
+                    label: 'Reddet',
+                    color: c.danger,
+                    onTap: () => _handleStatusChange(a.id, 'cancelled'),
+                  ),
+                ] else if (a.status == 'confirmed') ...[
+                  _StatusButton(
+                    label: 'Tamamlandı',
+                    color: c.success,
+                    onTap: () => _handleStatusChange(a.id, 'completed'),
+                  ),
+                  const SizedBox(width: HgSpace.sm),
+                  _StatusButton(
+                    label: 'İptal',
+                    color: c.danger,
+                    onTap: () => _handleStatusChange(a.id, 'cancelled'),
+                  ),
+                ],
               ],
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.12),
-              borderRadius:
-                  BorderRadius.circular(HgRadius.pill),
-            ),
-            child: Text(statusLabel,
-                style: HgText.small
-                    .copyWith(color: statusColor)),
-          ),
+          ],
         ],
       ),
     );
@@ -613,44 +667,27 @@ class _AppointmentAddSheetState extends State<_AppointmentAddSheet> {
   }
 }
 
-// ─── Örnek randevu verisi (Supabase yokken) ───
+// ─── Durum değiştirme butonu (onayla/reddet/tamamla/iptal) ───
 
-List<Appointment> _sampleAppointments() {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  return [
-    Appointment(
-      id: 'sa1', title: 'Elif Yılmaz — Makyaj Kampanyası',
-      date: today, startTime: '10:00', createdBy: 'demo',
-      description: 'Profesyonel makyaj + fotoğraf çekimi',
-      status: 'confirmed', attendeeName: 'Elif Yılmaz',
-    ),
-    Appointment(
-      id: 'sa2', title: 'Dr. Ahmet Kaya — Reklam Görüşmesi',
-      date: today, startTime: '14:00', createdBy: 'demo',
-      description: 'Instagram reklam kampanyası detayları',
-      status: 'pending', attendeeName: 'Dr. Ahmet Kaya',
-    ),
-    Appointment(
-      id: 'sa3', title: 'Studio Nova — Çekim Planlama',
-      date: today.add(const Duration(days: 1)),
-      startTime: '11:00', createdBy: 'demo',
-      description: 'Ekipman ve mekan onayı',
-      status: 'pending', attendeeName: 'Studio Nova',
-    ),
-    Appointment(
-      id: 'sa4', title: 'Zeynep Arslan — Kaş Laminasyonu',
-      date: today.add(const Duration(days: 2)),
-      startTime: '15:30', createdBy: 'demo',
-      description: 'Rutin bakım randevusu',
-      status: 'confirmed', attendeeName: 'Zeynep Arslan',
-    ),
-    Appointment(
-      id: 'sa5', title: 'Cenk Demir — Saç Bakımı',
-      date: today.add(const Duration(days: 3)),
-      startTime: '09:00', createdBy: 'demo',
-      description: 'Keratin bakım',
-      status: 'pending', attendeeName: 'Cenk Demir',
-    ),
-  ];
+class _StatusButton extends StatelessWidget {
+  const _StatusButton({required this.label, required this.color, required this.onTap});
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withValues(alpha: 0.15),
+      borderRadius: BorderRadius.circular(HgRadius.pill),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(HgRadius.pill),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Text(label, style: HgText.caption.copyWith(color: color)),
+        ),
+      ),
+    );
+  }
 }

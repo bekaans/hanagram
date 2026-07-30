@@ -8,6 +8,7 @@ class Review {
     required this.text,
     this.isVerified = false,
     this.avatarText = '',
+    this.id = '',
   });
 
   final String name;
@@ -16,53 +17,37 @@ class Review {
   final String text;
   final bool isVerified; // randevu sahibi mi
   final String avatarText; // initials, e.g. "AY"
+  final String id; // Supabase reviews.id — boşsa (sample veri) silinemez
 
-  static const sampleReviews = [
-    Review(
-      name: 'Ayşe Yılmaz',
-      rating: 5,
-      date: '20 Tem 2026',
-      text: 'Harika bir deneyim! Çok profesyonel ekip.',
-      isVerified: true,
-      avatarText: 'AY',
-    ),
-    Review(
-      name: 'Mehmet Kaya',
-      rating: 4,
-      date: '18 Tem 2026',
-      text: 'Memnun kaldım, tavsiye ederim.',
-      isVerified: true,
-      avatarText: 'MK',
-    ),
-    Review(
-      name: 'Zeynep Demir',
-      rating: 5,
-      date: '15 Tem 2026',
-      text: 'En iyi güzellik merkezi!',
-      isVerified: true,
-      avatarText: 'ZD',
-    ),
-    Review(
-      name: 'Can Yıldız',
-      rating: 4,
-      date: '10 Tem 2026',
-      text: 'Güzel bir ortam, kaliteli hizmet.',
-      isVerified: true,
-      avatarText: 'CY',
-    ),
-    Review(
-      name: 'Selin Kaya',
-      rating: 5,
-      date: '5 Tem 2026',
-      text: 'Kesinlikle tekrar geleceğim.',
-      isVerified: false,
-      avatarText: 'SK',
-    ),
-  ];
+  factory Review.fromJson(Map<String, dynamic> j) {
+    final name = j['name'] as String? ?? '';
+    final initials = name
+        .trim()
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0])
+        .take(2)
+        .join()
+        .toUpperCase();
+    final date = j['date'] as DateTime?;
+    return Review(
+      id: j['id'] as String? ?? '',
+      name: name,
+      rating: (j['rating'] as num?)?.toInt() ?? 0,
+      date: date != null
+          ? '${date.day} ${_monthName(date.month)} ${date.year}'
+          : '',
+      text: j['text'] as String? ?? '',
+      isVerified: j['isVerified'] as bool? ?? false,
+      avatarText: initials,
+    );
+  }
 
-  static double get averageRating {
-    if (sampleReviews.isEmpty) return 0;
-    final total = sampleReviews.fold<int>(0, (sum, r) => sum + r.rating);
-    return total / sampleReviews.length;
+  static String _monthName(int m) {
+    const months = [
+      'Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz',
+      'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara',
+    ];
+    return months[m - 1];
   }
 }

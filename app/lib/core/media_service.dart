@@ -118,4 +118,85 @@ class MediaService {
   static String getPublicUrl(String bucket, String path) {
     return _storage.storage.from(bucket).getPublicUrl(path);
   }
+
+  // ─── media tablosu (galeri/portfolyo kaydı) ───
+
+  /// Kullanıcının medya galerisini getir.
+  static Future<List<Map<String, dynamic>>> listMedia({int limit = 100}) async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return [];
+
+      final result = await _storage
+          .from('media')
+          .select()
+          .eq('owner_id', userId)
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      return (result as List).cast<Map<String, dynamic>>().map((m) {
+        return {
+          'id': m['id'],
+          'ownerId': m['owner_id'],
+          'type': m['type'],
+          'filePath': m['file_path'],
+          'thumbnailPath': '',
+          'mimeType': m['mime_type'],
+          'fileSize': m['file_size'],
+          'width': m['width'],
+          'height': m['height'],
+          'durationMs': m['duration_ms'],
+          'caption': m['caption'],
+          'createdAt': DateTime.tryParse(m['created_at'] as String? ?? '')
+                  ?.millisecondsSinceEpoch ??
+              0,
+        };
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Yüklenen medyanın (public URL zaten Storage'a yüklendi) kaydını oluştur.
+  static Future<String?> registerMedia({
+    required String publicUrl,
+    required String type,
+    String mimeType = '',
+    int fileSize = 0,
+    int width = 0,
+    int height = 0,
+    int durationMs = 0,
+    String caption = '',
+  }) async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return null;
+
+      final result = await _storage.from('media').insert({
+        'owner_id': userId,
+        'file_path': publicUrl,
+        'type': type,
+        'mime_type': mimeType,
+        'file_size': fileSize,
+        'width': width,
+        'height': height,
+        'duration_ms': durationMs,
+        'caption': caption,
+      }).select('id').maybeSingle();
+
+      return result?['id'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Medya kaydını sil.
+  static Future<bool> deleteMediaRecord(String mediaId) async {
+    try {
+      await _storage.from('media').delete().eq('id', mediaId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

@@ -66,6 +66,7 @@ class _ComposeSheetState extends State<ComposeSheet> {
             TextField(
               controller: _ctrl,
               maxLines: 4,
+              onChanged: (_) => setState(() {}),
               style: HgText.body.copyWith(color: c.text),
               decoration: InputDecoration(
                 hintText: 'Birkaç cümle yaz…',

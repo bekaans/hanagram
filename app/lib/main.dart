@@ -174,8 +174,6 @@ class _HanagramAppState extends State<HanagramApp> {
     switch (state.status) {
       case CoreStatus.starting:
         return _Splash(colors: c);
-      case CoreStatus.failed:
-        return _CoreFailure(detail: state.failureDetail ?? '', colors: c);
       case CoreStatus.ready:
         // Opsiyonel güncelleme varsa SnackBar göster
         if (_pendingUpdate != null) {
@@ -271,65 +269,3 @@ class _SplashState extends State<_Splash> with SingleTickerProviderStateMixin {
   }
 }
 
-/// Çekirdek yüklenemediyse sahte veriye düşülmez — durum açıkça söylenir.
-class _CoreFailure extends StatelessWidget {
-  const _CoreFailure({required this.detail, required this.colors});
-  final String detail;
-  final HgColors colors;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = colors;
-    return Scaffold(
-      backgroundColor: c.bg,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(HgSpace.xl),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.memory_outlined, size: 40, color: c.warning),
-                const SizedBox(height: HgSpace.lg),
-                Text('Çekirdek yüklenemedi',
-                    style: HgText.title.copyWith(color: c.text)),
-                const SizedBox(height: HgSpace.sm),
-                Text(
-                  'Uygulama C++ çekirdeğine bağlanamadı. Uydurma içerik göstermek '
-                  'yerine durumu bildiriyoruz.',
-                  style: HgText.body.copyWith(color: c.textMuted),
-                ),
-                const SizedBox(height: HgSpace.lg),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(HgSpace.md),
-                  decoration: BoxDecoration(
-                    color: c.surfaceAlt,
-                    borderRadius: BorderRadius.circular(HgRadius.md),
-                    border: Border.all(color: c.border),
-                  ),
-                  child: Text(detail,
-                      style: HgText.caption.copyWith(
-                          color: c.textMuted, fontFamily: 'monospace')),
-                ),
-                const SizedBox(height: HgSpace.lg),
-                Text('Çözüm', style: HgText.heading.copyWith(color: c.text)),
-                const SizedBox(height: HgSpace.sm),
-                Text(
-                  'core/ dizininde çekirdeği derle:\n'
-                  '  cmake -S . -B build -G Ninja\n'
-                  '  cmake --build build\n\n'
-                  'Ardından uygulamayı yeniden başlat.',
-                  style: HgText.small
-                      .copyWith(color: c.textMuted, fontFamily: 'monospace'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

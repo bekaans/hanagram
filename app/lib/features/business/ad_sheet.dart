@@ -1,19 +1,17 @@
 // Hanagram — reklam ekle/düzenle sheet
 //
-// product_sheet.dart kalıbına göre. ad.create veya ad.update çağırır.
+// product_sheet.dart kalıbına göre. AdService.createAd/updateAd çağırır.
 import 'package:flutter/material.dart';
-import '../../core/app_state.dart';
+import '../../core/ad_service.dart';
 import 'package:hanagram_design/design.dart';
 import 'ad_item.dart';
-import 'core_error_helper.dart';
+
 class AdSheet extends StatefulWidget {
   const AdSheet({
     super.key,
-    required this.businessId,
     this.ad,
   });
 
-  final String businessId;
   final AdItem? ad;
 
   @override
@@ -57,49 +55,41 @@ class _AdSheetState extends State<AdSheet> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSaving = true);
-    try {
-      final app = AppScope.of(context);
-      final ad = widget.ad;
-      final budgetKurus =
-          (double.tryParse(_budgetCtrl.text.replaceAll(',', '.')) ?? 0) * 100;
-      final bidVal =
-          double.tryParse(_bidCtrl.text.replaceAll(',', '.')) ?? 1.0;
-      final topics = _topicsCtrl.text
-          .split(',')
-          .map((t) => t.trim())
-          .where((t) => t.isNotEmpty)
-          .toList();
+    final ad = widget.ad;
+    final budgetKurus =
+        (double.tryParse(_budgetCtrl.text.replaceAll(',', '.')) ?? 0) * 100;
+    final bidVal = double.tryParse(_bidCtrl.text.replaceAll(',', '.')) ?? 1.0;
+    final topics = _topicsCtrl.text
+        .split(',')
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
 
-      if (ad == null) {
-        app.core.call('ad.create', {
-          'businessId': widget.businessId,
-          'title': _titleCtrl.text,
-          'description': _descCtrl.text,
-          'dailyBudgetKurus': budgetKurus.round(),
-          'bid': bidVal,
-          'targetTopics': topics,
-        });
-      } else {
-        app.core.call('ad.update', {
-          'businessId': widget.businessId,
-          'adId': ad.id,
-          'title': _titleCtrl.text,
-          'description': _descCtrl.text,
-          'dailyBudgetKurus': budgetKurus.round(),
-          'bid': bidVal,
-          'targetTopics': topics,
-        });
-      }
+    final ok = ad == null
+        ? await AdService.createAd(
+            title: _titleCtrl.text,
+            description: _descCtrl.text,
+            dailyBudgetKurus: budgetKurus.round(),
+            bid: bidVal,
+            targetTopics: topics,
+          )
+        : await AdService.updateAd(
+            adId: ad.id,
+            title: _titleCtrl.text,
+            description: _descCtrl.text,
+            dailyBudgetKurus: budgetKurus.round(),
+            bid: bidVal,
+            targetTopics: topics,
+          );
 
-      if (mounted) Navigator.of(context).pop(true);
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(extractErrorMessage(e))),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    if (ok) {
+      Navigator.of(context).pop(true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kaydedilemedi, tekrar deneyin.')),
+      );
     }
   }
 
@@ -107,20 +97,14 @@ class _AdSheetState extends State<AdSheet> {
     final ad = widget.ad;
     if (ad == null) return;
     final newStatus = ad.status == 'active' ? 'paused' : 'active';
-    try {
-      final app = AppScope.of(context);
-      app.core.call('ad.update', {
-        'businessId': widget.businessId,
-        'adId': ad.id,
-        'status': newStatus,
-      });
-      if (mounted) Navigator.of(context).pop(true);
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(extractErrorMessage(e))),
-        );
-      }
+    final ok = await AdService.updateAd(adId: ad.id, status: newStatus);
+    if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).pop(true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Güncellenemedi, tekrar deneyin.')),
+      );
     }
   }
 

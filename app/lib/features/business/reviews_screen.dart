@@ -1,9 +1,10 @@
-// Hanagram — Yorumlar ekranı (bağımsız, Supabase bağımlılığı yok)
+// Hanagram — Yorumlar ekranı
 //
-// Müşteri yorumlarını listeler, yıldız puanı + yorum ekleme.
-// Arkadram'ın yorumlar.tsx ekranının Flutter karşılığı.
+// İşletmenin aldığı gerçek müşteri yorumlarını listeler (Supabase reviews
+// tablosu), yıldız puanı + uygulama dışı alınan yorumu elle ekleme.
 import 'package:flutter/material.dart';
 import 'package:hanagram_design/design.dart';
+import '../../core/review_service.dart';
 import '../profile/models/review_model.dart';
 
 class ReviewsScreen extends StatefulWidget {
@@ -14,12 +15,20 @@ class ReviewsScreen extends StatefulWidget {
 }
 
 class _ReviewsScreenState extends State<ReviewsScreen> {
-  late List<Review> _reviews;
+  List<Review> _reviews = const [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _reviews = List.of(Review.sampleReviews);
+    _loadReviews();
+  }
+
+  Future<void> _loadReviews() async {
+    setState(() => _isLoading = true);
+    final result = await ReviewService.getReviews();
+    _reviews = result.map((e) => Review.fromJson(e)).toList();
+    if (mounted) setState(() => _isLoading = false);
   }
 
   double get _averageRating {
@@ -35,15 +44,16 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _ReviewAddSheet(
-        onAdded: (review) {
-          setState(() => _reviews.insert(0, review));
-        },
+        onAdded: _loadReviews,
       ),
     );
   }
 
-  void _removeReview(int index) {
+  Future<void> _removeReview(int index) async {
+    final review = _reviews[index];
     setState(() => _reviews.removeAt(index));
+    final ok = await ReviewService.deleteReview(review.id);
+    if (!ok) _loadReviews();
   }
 
   @override
@@ -64,7 +74,9 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
       ),
       body: SafeArea(
         bottom: false,
-        child: ListView(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
           padding: const EdgeInsets.fromLTRB(HgSpace.lg, HgSpace.lg, HgSpace.lg, 96),
           children: [
             // ─── Ortalama puan ───
@@ -200,7 +212,7 @@ class _ReviewCard extends StatelessWidget {
 
 class _ReviewAddSheet extends StatefulWidget {
   const _ReviewAddSheet({required this.onAdded});
-  final ValueChanged<Review> onAdded;
+  final VoidCallback onAdded;
 
   @override
   State<_ReviewAddSheet> createState() => _ReviewAddSheetState();
@@ -210,6 +222,7 @@ class _ReviewAddSheetState extends State<_ReviewAddSheet> {
   final _nameCtrl = TextEditingController();
   final _textCtrl = TextEditingController();
   int _rating = 5;
+  bool _isSaving = false;
 
   @override
   void dispose() {
@@ -218,24 +231,26 @@ class _ReviewAddSheetState extends State<_ReviewAddSheet> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (_nameCtrl.text.isEmpty || _textCtrl.text.isEmpty) return;
 
-    final initials = _nameCtrl.text.trim().split(' ').map((w) => w[0]).take(2).join().toUpperCase();
-    widget.onAdded(Review(
-      name: _nameCtrl.text.trim(),
+    setState(() => _isSaving = true);
+    final ok = await ReviewService.addManualReview(
+      reviewerName: _nameCtrl.text.trim(),
       rating: _rating,
-      date: '${DateTime.now().day} ${_monthName(DateTime.now().month)} ${DateTime.now().year}',
-      text: _textCtrl.text.trim(),
-      isVerified: false,
-      avatarText: initials,
-    ));
-    Navigator.pop(context, true);
-  }
+      comment: _textCtrl.text.trim(),
+    );
+    if (!mounted) return;
+    setState(() => _isSaving = false);
 
-  String _monthName(int m) {
-    const months = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
-    return months[m - 1];
+    if (ok) {
+      widget.onAdded();
+      if (mounted) Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kaydedilemedi, tekrar deneyin.')),
+      );
+    }
   }
 
   @override
@@ -290,7 +305,8 @@ class _ReviewAddSheetState extends State<_ReviewAddSheet> {
           // Kaydet
           SizedBox(
             width: double.infinity,
-            child: BrandButton(label: 'Yayınla', onPressed: _submit),
+            child: BrandButton(
+                label: 'Yayınla', onPressed: _isSaving ? null : _submit),
           ),
         ],
       ),

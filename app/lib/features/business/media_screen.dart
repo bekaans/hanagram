@@ -10,9 +10,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_state.dart';
+import '../../core/media_service.dart';
 import 'package:hanagram_design/design.dart';
 import 'media_item.dart';
-import 'core_error_helper.dart';
+
 class MediaScreen extends StatefulWidget {
   const MediaScreen({super.key});
 
@@ -35,23 +36,9 @@ class _MediaScreenState extends State<MediaScreen> {
     setState(() {
       _isLoading = true;
     });
-    try {
-      final app = AppScope.of(context);
-      final ownerId = app.session!.userId;
-      final result = app.core.call('media.list', {
-        'ownerId': ownerId,
-      });
-      final items = (result['items'] as List?) ?? const [];
-      _items = items
-          .map((e) =>
-              MediaData.fromJson((e as Map).cast<String, dynamic>()))
-          .toList();
-    } on Exception catch (_) {
-      // Core/Supabase yoksa örnek medya göster
-      _items = _sampleMedia();
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    final result = await MediaService.listMedia();
+    _items = result.map((e) => MediaData.fromJson(e)).toList();
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _pickImage() async {
@@ -75,31 +62,33 @@ class _MediaScreenState extends State<MediaScreen> {
   }
 
   Future<void> _registerMedia(dynamic xfile, String type) async {
-    try {
-      final app = AppScope.of(context);
-      final ownerId = app.session!.userId;
-      final file = File(xfile.path);
-      final stat = await file.stat();
+    final app = AppScope.of(context);
+    final authorId = app.session!.userId;
+    final file = File(xfile.path);
+    final stat = await file.stat();
 
-      app.core.call('media.register', {
-        'ownerId': ownerId,
-        'filePath': xfile.path,
-        'type': type,
-        'mimeType': type == 'video' ? 'video/mp4' : 'image/jpeg',
-        'fileSize': stat.size,
-        'width': 0,
-        'height': 0,
-        'durationMs': 0,
-        'caption': '',
-      });
-      _loadMedia();
-    } on Exception catch (e) {
+    final publicUrl = await MediaService.uploadMedia(
+      file,
+      authorId,
+      type: type == 'video' ? 'video' : 'image',
+    );
+
+    if (publicUrl == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(extractErrorMessage(e))),
+          const SnackBar(content: Text('Yükleme başarısız, tekrar deneyin.')),
         );
       }
+      return;
     }
+
+    await MediaService.registerMedia(
+      publicUrl: publicUrl,
+      type: type,
+      mimeType: type == 'video' ? 'video/mp4' : 'image/jpeg',
+      fileSize: stat.size,
+    );
+    _loadMedia();
   }
 
   void _showPicker() {
@@ -156,8 +145,6 @@ class _MediaScreenState extends State<MediaScreen> {
   }
 
   Future<void> _deleteMedia(MediaData media) async {
-    final app = AppScope.of(context);
-    if (!mounted) return;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -176,20 +163,8 @@ class _MediaScreenState extends State<MediaScreen> {
       ),
     );
     if (confirm != true) return;
-    try {
-      final ownerId = app.session!.userId;
-      app.core.call('media.delete', {
-        'ownerId': ownerId,
-        'mediaId': media.id,
-      });
-      if (mounted) _loadMedia();
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(extractErrorMessage(e))),
-        );
-      }
-    }
+    await MediaService.deleteMediaRecord(media.id);
+    if (mounted) _loadMedia();
   }
 
   @override
@@ -281,58 +256,27 @@ class _MediaViewer extends StatelessWidget {
         ],
       ),
       body: Center(
-        child: path.isNotEmpty
-            ? InteractiveViewer(
+        child: path.isEmpty
+            ? const Icon(Icons.broken_image_outlined,
+                color: Colors.white38, size: 64)
+            : InteractiveViewer(
                 minScale: 0.5,
                 maxScale: 4.0,
                 child: media.isVideo
                     ? const Icon(Icons.videocam_outlined,
                         color: Colors.white54, size: 64)
-                    : PlatformImage(file: File(path), fit: BoxFit.contain),
-              )
-            : const Icon(Icons.broken_image_outlined,
-                color: Colors.white38, size: 64),
+                    : (path.startsWith('http')
+                        ? Image.network(
+                            path,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) => const Icon(
+                                Icons.broken_image_outlined,
+                                color: Colors.white38,
+                                size: 64),
+                          )
+                        : PlatformImage(file: File(path), fit: BoxFit.contain)),
+              ),
       ),
     );
   }
-}
-
-// ─── Örnek medya verisi (core yokken) ───
-
-List<MediaData> _sampleMedia() {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  return [
-    MediaData(
-      id: 'sm1', ownerId: 'demo', type: 'photo',
-      caption: 'Stüdyo çekimi — Elif',
-      createdAt: now - 86400000 * 2, width: 1080, height: 1350,
-    ),
-    MediaData(
-      id: 'sm2', ownerId: 'demo', type: 'video',
-      caption: 'Reels kurgu — makyaj süreci',
-      createdAt: now - 86400000, width: 1080, height: 1920,
-      durationMs: 32000,
-    ),
-    MediaData(
-      id: 'sm3', ownerId: 'demo', type: 'photo',
-      caption: 'Dr. Ahmet Kaya reklam görseli',
-      createdAt: now - 86400000 * 5, width: 1200, height: 630,
-    ),
-    MediaData(
-      id: 'sm4', ownerId: 'demo', type: 'photo',
-      caption: 'Saç bakım önce-sonra',
-      createdAt: now - 86400000 * 8, width: 1080, height: 1080,
-    ),
-    MediaData(
-      id: 'sm5', ownerId: 'demo', type: 'video',
-      caption: 'Tanıtım videosu — Studio Nova',
-      createdAt: now - 86400000 * 10, width: 1920, height: 1080,
-      durationMs: 45000,
-    ),
-    MediaData(
-      id: 'sm6', ownerId: 'demo', type: 'photo',
-      caption: 'Kampanya afişi — yaz indirimi',
-      createdAt: now - 86400000 * 15, width: 1080, height: 1920,
-    ),
-  ];
 }

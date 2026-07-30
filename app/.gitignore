@@ -46,6 +46,7 @@ app.*.map.json
 
 # Environment secrets
 .env*
+!.env.example
 
 # Android release signing
 key.properties

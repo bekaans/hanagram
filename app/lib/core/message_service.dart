@@ -20,7 +20,7 @@ class MessageService {
   /// Mevcut DM varsa onu dön, yoksa yeni oluştur.
   static Future<String?> findOrCreateDm(String otherUserId) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return null;
 
       // 1. Mevcut DM kontrolü: iki üyeli, dm tipinde
@@ -75,12 +75,56 @@ class MessageService {
     }
   }
 
+  // ─── Ekip Sohbeti: Bul veya Oluştur ───
+
+  /// Bir ekibin grup konuşmasını bul, yoksa (üye listesiyle) oluştur.
+  static Future<String?> findOrCreateTeamConversation(
+    String groupId,
+    String teamName,
+    List<String> memberUserIds,
+  ) async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return null;
+
+      final existing = await _db
+          .from('conversations')
+          .select('id')
+          .eq('team_id', groupId)
+          .maybeSingle();
+      if (existing != null) return existing['id'] as String?;
+
+      final conv = await _db
+          .from('conversations')
+          .insert({
+            'type': 'group',
+            'name': teamName,
+            'team_id': groupId,
+            'created_by': userId,
+          })
+          .select('id')
+          .maybeSingle();
+
+      final convId = conv?['id'] as String?;
+      if (convId == null) return null;
+
+      final memberSet = {...memberUserIds, userId};
+      await _db.from('conversation_members').insert(
+        memberSet.map((id) => {'conversation_id': convId, 'user_id': id}).toList(),
+      );
+
+      return convId;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ─── Thread Listesi ───
 
   /// Kullanıcının tüm DM konuşmalarını son mesajla birlikte getir.
   static Future<List<MessageThread>> getThreads() async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       // 1. Kullanıcının üye olduğu konuşmaları bul
@@ -170,7 +214,7 @@ class MessageService {
     DateTime? before,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       var query = _db
@@ -204,7 +248,7 @@ class MessageService {
     String type = 'text',
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return false;
 
       await _db.from('messages').insert({
@@ -244,7 +288,7 @@ class MessageService {
 
   static Future<void> markAsRead(String conversationId) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return;
 
       await _db.from('conversation_members').update({
@@ -256,37 +300,65 @@ class MessageService {
     } catch (_) {}
   }
 
+  /// Bir DM'de KARŞI TARAFIN son okuma zamanını + "okundu bilgisi" tercihini
+  /// getirir (Ayarlar → Gizlilik → "Okundu bilgisi" — karşı taraf kapattıysa
+  /// hiçbir şey gösterilmemeli, kendi tercihim değil ONLARIN tercihi geçerli).
+  static Future<({DateTime? lastReadAt, bool showsReceipts})> getOtherReadReceipt(
+      String conversationId) async {
+    try {
+      final myId = await SupabaseService.myDbId();
+      if (myId == null) return (lastReadAt: null, showsReceipts: false);
+
+      final result = await _db
+          .from('conversation_members')
+          .select('last_read_at, users(show_read_receipts)')
+          .eq('conversation_id', conversationId)
+          .neq('user_id', myId)
+          .maybeSingle();
+
+      if (result == null) return (lastReadAt: null, showsReceipts: false);
+      final user = result['users'] as Map<String, dynamic>?;
+      final shows = user?['show_read_receipts'] as bool? ?? true;
+      final lastReadAt =
+          DateTime.tryParse(result['last_read_at'] as String? ?? '');
+      return (lastReadAt: lastReadAt, showsReceipts: shows);
+    } catch (_) {
+      return (lastReadAt: null, showsReceipts: false);
+    }
+  }
+
   // ─── Real-time: Yeni Mesaj Dinleyicisi ───
 
   static RealtimeChannel? _messagesChannel;
 
   static Stream<ChatMessage> subscribeToMessages(String conversationId) {
     final controller = StreamController<ChatMessage>();
-    final userId = SupabaseService.user?.id ?? '';
 
     _messagesChannel?.unsubscribe();
-    _messagesChannel = _db
-        .channel('messages-$conversationId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'conversation_id',
-            value: conversationId,
-          ),
-          callback: (payload) {
-            if (payload.newRecord.isNotEmpty) {
-              final msg = ChatMessage.fromJson(
-                payload.newRecord,
-                currentUserId: userId,
-              );
-              controller.add(msg);
-            }
-          },
-        )
-        .subscribe();
+    SupabaseService.myDbId().then((userId) {
+      _messagesChannel = _db
+          .channel('messages-$conversationId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'messages',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'conversation_id',
+              value: conversationId,
+            ),
+            callback: (payload) {
+              if (payload.newRecord.isNotEmpty) {
+                final msg = ChatMessage.fromJson(
+                  payload.newRecord,
+                  currentUserId: userId ?? '',
+                );
+                controller.add(msg);
+              }
+            },
+          )
+          .subscribe();
+    });
 
     return controller.stream;
   }
@@ -300,30 +372,33 @@ class MessageService {
 
   static RealtimeChannel? _threadsChannel;
 
-  static Stream<void> subscribeToThreads(String userId) {
+  static Stream<void> subscribeToThreads() {
     final controller = StreamController<void>();
 
     _threadsChannel?.unsubscribe();
-    _threadsChannel = _db
-        .channel('threads-$userId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'conversation_members',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'user_id',
-            value: userId,
-          ),
-          callback: (_) => controller.add(null),
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          callback: (_) => controller.add(null),
-        )
-        .subscribe();
+    SupabaseService.myDbId().then((userId) {
+      if (userId == null) return;
+      _threadsChannel = _db
+          .channel('threads-$userId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'conversation_members',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'user_id',
+              value: userId,
+            ),
+            callback: (_) => controller.add(null),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'messages',
+            callback: (_) => controller.add(null),
+          )
+          .subscribe();
+    });
 
     return controller.stream;
   }
@@ -357,7 +432,7 @@ class MessageService {
   /// Kullanıcının bağlantılarındaki kişileri getir.
   static Future<List<Map<String, dynamic>>> getConnections() async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db.from('connections').select('''

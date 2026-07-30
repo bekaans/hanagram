@@ -25,29 +25,6 @@ String inviteErrorText(String code) {
   }
 }
 
-// ─── Üyelik bilgi satırı ───
-
-class MembershipRow extends StatelessWidget {
-  const MembershipRow({super.key, required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = HgTheme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          Text(label, style: HgText.small.copyWith(color: c.textMuted)),
-          const Spacer(),
-          Text(value, style: HgText.bodyStrong.copyWith(color: c.text)),
-        ],
-      ),
-    );
-  }
-}
-
 // ─── Davet kodu giriş alanı ───
 
 class InviteCodeField extends StatelessWidget {
@@ -201,66 +178,6 @@ class AccountPicker extends StatelessWidget {
           ),
           const SizedBox(height: HgSpace.sm),
         ],
-      ],
-    );
-  }
-}
-
-// ─── İlk kurulum davet kodları ───
-
-class FirstRunCodes extends StatelessWidget {
-  const FirstRunCodes({super.key, required this.codes, required this.onPick});
-
-  final List<String> codes;
-  final ValueChanged<String> onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = HgTheme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.key_outlined, size: 14, color: c.warning),
-            const SizedBox(width: 6),
-            Text('Bu cihazda üretilen ilk davetler',
-                style: HgText.caption.copyWith(color: c.warning)),
-          ],
-        ),
-        const SizedBox(height: HgSpace.sm),
-        Wrap(
-          spacing: HgSpace.sm,
-          runSpacing: HgSpace.sm,
-          children: [
-            for (final code in codes)
-              InkWell(
-                onTap: () => onPick(code),
-                borderRadius: BorderRadius.circular(HgRadius.sm),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: c.surfaceAlt,
-                    borderRadius: BorderRadius.circular(HgRadius.sm),
-                    border: Border.all(color: c.border),
-                  ),
-                  child: Text(
-                    code,
-                    style: HgText.caption.copyWith(
-                      color: c.text,
-                      fontFamily: 'monospace',
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: HgSpace.xs),
-        Text(
-          'Dokun, kod alana yazılsın. Bu liste yalnızca ilk kurulumda görünür.',
-          style: HgText.caption.copyWith(color: c.textFaint),
-        ),
       ],
     );
   }

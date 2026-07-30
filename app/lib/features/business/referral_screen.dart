@@ -1,25 +1,55 @@
 // Hanagram — Referans Sistemi
 //
-// 1 yıl ücretsiz + referans başına 1 ay + kalıcı komisyon.
+// Her kullanıcının 1 benzersiz kodu var, davet ettikleri gerçek listeden gelir.
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:hanagram_design/design.dart';
+import '../../core/app_state.dart';
+import '../../core/referral_service.dart';
 
-class ReferralScreen extends StatelessWidget {
+class ReferralScreen extends StatefulWidget {
   const ReferralScreen({super.key});
+
+  @override
+  State<ReferralScreen> createState() => _ReferralScreenState();
+}
+
+class _ReferralScreenState extends State<ReferralScreen> {
+  String? _code;
+  List<Map<String, dynamic>> _referrals = const [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final userId = AppScope.of(context).session?.userId;
+    if (userId == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    final results = await Future.wait([
+      ReferralService.getMyCode(userId),
+      ReferralService.getMyReferrals(userId),
+    ]);
+    if (mounted) {
+      setState(() {
+        _code = results[0] as String?;
+        _referrals = results[1] as List<Map<String, dynamic>>;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = HgTheme.of(context);
-
-    // Örnek veriler
-    final referrals = [
-      _Referral(name: 'Elif Demir', date: '15 Tem 2026', status: 'Aktif', earned: '₺45'),
-      _Referral(name: 'Can Yıldız', date: '20 Haz 2026', status: 'Aktif', earned: '₺30'),
-      _Referral(name: 'Selin Kaya', date: '5 Haz 2026', status: 'Kayıtlı', earned: '₺15'),
-    ];
+    final referrals = _referrals;
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -96,7 +126,7 @@ class ReferralScreen extends StatelessWidget {
                     children: [
                       Text('Kodun', style: HgText.caption.copyWith(color: c.textMuted, shadows: null)),
                       const SizedBox(height: 2),
-                      Text('HANAGRAM-KAAN', style: TextStyle(
+                      Text(_isLoading ? '…' : (_code ?? '—'), style: TextStyle(
                         fontSize: 18, fontWeight: FontWeight.w800, color: c.violet,
                         fontFamily: '.SF Pro Text', letterSpacing: 1,
                       )),
@@ -105,7 +135,9 @@ class ReferralScreen extends StatelessWidget {
                 ),
                 GestureDetector(
                   onTap: () {
-                    Clipboard.setData(const ClipboardData(text: 'HANAGRAM-KAAN'));
+                    final code = _code;
+                    if (code == null) return;
+                    Clipboard.setData(ClipboardData(text: code));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Kod kopyalandı!')),
                     );
@@ -145,33 +177,20 @@ class ReferralScreen extends StatelessWidget {
           ),
           const SizedBox(height: HgSpace.xl),
 
-          // Bakiye
-          Row(
-            children: [
-              Text('Kazançlarım', style: HgText.heading.copyWith(color: c.text, shadows: null)),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [c.success, const Color(0xFF00C853)]),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('₺90', style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white,
-                  fontFamily: '.SF Pro Text',
-                )),
-              ),
-            ],
-          ),
-          const SizedBox(height: HgSpace.sm),
-          Text('Hesap bakiyenize eklenecek tutar', style: HgText.caption.copyWith(color: c.textMuted, shadows: null)),
-          const SizedBox(height: HgSpace.xl),
-
           // Referans listesi
           Text('Referanslarım (${referrals.length})', style: HgText.heading.copyWith(color: c.text, shadows: null)),
           const SizedBox(height: HgSpace.md),
-          for (final r in referrals)
-            _ReferralCard(referral: r, c: c),
+          if (_isLoading)
+            const Center(child: CircularProgressIndicator())
+          else if (referrals.isEmpty)
+            EmptyState(
+              icon: CupertinoIcons.person_2,
+              title: 'Henüz kimseyi davet etmedin',
+              message: 'Kodunu paylaştığında burada görünecek.',
+            )
+          else
+            for (final r in referrals)
+              _ReferralCard(referral: r, c: c),
         ],
       ),
     );
@@ -206,22 +225,19 @@ class _BenefitRow extends StatelessWidget {
   }
 }
 
-class _Referral {
-  _Referral({required this.name, required this.date, required this.status, required this.earned});
-  final String name;
-  final String date;
-  final String status;
-  final String earned;
-}
-
 class _ReferralCard extends StatelessWidget {
   const _ReferralCard({required this.referral, required this.c});
-  final _Referral referral;
+  final Map<String, dynamic> referral;
   final HgColors c;
 
   @override
   Widget build(BuildContext context) {
-    final isActive = referral.status == 'Aktif';
+    final referred =
+        (referral['referred'] as Map?)?.cast<String, dynamic>() ?? {};
+    final name = referred['full_name'] as String? ?? '?';
+    final username = referred['username'] as String? ?? '?';
+    final createdAt = referral['created_at'] as String? ?? '';
+
     return Container(
       margin: const EdgeInsets.only(bottom: HgSpace.sm),
       padding: const EdgeInsets.all(HgSpace.md),
@@ -232,52 +248,32 @@ class _ReferralCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Avatar
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: isActive
-                  ? [c.violet, c.blue]
-                  : [c.textMuted, c.textFaint]),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Center(
-              child: Text(referral.name.split(' ').map((e) => e.isNotEmpty ? e[0] : '').join().substring(0, 2.clamp(0, referral.name.length)),
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
-            ),
-          ),
+          Avatar(name: name, size: 36, gradient: true),
           const SizedBox(width: HgSpace.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(referral.name, style: HgText.bodyStrong.copyWith(color: c.text, shadows: null)),
-                Text(referral.date, style: HgText.caption.copyWith(color: c.textFaint, shadows: null)),
+                Text(name, style: HgText.bodyStrong.copyWith(color: c.text, shadows: null)),
+                Text('@$username', style: HgText.caption.copyWith(color: c.textFaint, shadows: null)),
               ],
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(referral.earned, style: TextStyle(
-                fontSize: 14, fontWeight: FontWeight.w700, color: c.success,
-                fontFamily: '.SF Pro Text',
-              )),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isActive ? c.success.withValues(alpha: 0.12) : c.surfaceAlt,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(referral.status, style: TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w600,
-                  color: isActive ? c.success : c.textMuted,
-                )),
-              ),
-            ],
-          ),
+          Text(_formatDate(createdAt),
+              style: HgText.caption.copyWith(color: c.textMuted, shadows: null)),
         ],
       ),
     );
+  }
+
+  static String _formatDate(String iso) {
+    if (iso.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(iso);
+      return '${dt.day.toString().padLeft(2, '0')}.'
+          '${dt.month.toString().padLeft(2, '0')}.${dt.year}';
+    } catch (_) {
+      return iso;
+    }
   }
 }

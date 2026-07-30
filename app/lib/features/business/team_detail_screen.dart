@@ -1,8 +1,11 @@
 // Hanagram — ekip detay ekranı
 //
-// Üye listesi, görevler, CRM, sohbet placeholder.
+// Üye listesi, görevler, CRM. Veri Supabase business_groups/group_members'tan gelir.
 import 'package:flutter/material.dart';
 import 'package:hanagram_design/design.dart';
+import '../../core/message_service.dart';
+import '../../core/team_service.dart';
+import '../messages/chat_detail_screen.dart';
 import 'team_item.dart';
 import 'team_sheet.dart';
 
@@ -15,16 +18,88 @@ class TeamDetailScreen extends StatefulWidget {
 }
 
 class _TeamDetailScreenState extends State<TeamDetailScreen> {
+  late List<TeamMember> _members = widget.team.members;
+  List<SharedTask> _tasks = const [];
+  List<CrmEntry> _crmEntries = const [];
+  bool _isLoading = true;
+  bool _opening = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDetails();
+  }
+
+  Future<void> _loadDetails() async {
+    setState(() => _isLoading = true);
+    final results = await Future.wait([
+      TeamService.getTeamTasks(widget.team.id),
+      TeamService.getTeamCrm(widget.team.id),
+    ]);
+    _tasks = (results[0]).map((t) => SharedTask(
+          title: t['title'] as String? ?? '',
+          assignee: t['assignee'] as String?,
+          isDone: t['isDone'] as bool? ?? false,
+        )).toList();
+    _crmEntries = (results[1]).map((e) => CrmEntry(
+          clientName: e['clientName'] as String? ?? '',
+          note: e['note'] as String? ?? '',
+        )).toList();
+    if (mounted) setState(() => _isLoading = false);
+  }
+
   Future<void> _showInviteSheet() async {
-    final name = await showModalBottomSheet<String>(
+    final picked = await showModalBottomSheet<Map<String, String>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => const InviteMemberSheet(),
     );
-    if (name != null && mounted) {
-      setState(() => widget.team.members.add(TeamMember(name: name)));
+    if (picked == null || !mounted) return;
+
+    final ok = await TeamService.addMember(widget.team.id, picked['userId']!);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _members = [
+            ..._members,
+            TeamMember(
+              name: picked['name'] ?? '',
+              userId: picked['userId'] ?? '',
+            ),
+          ]);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Eklenemedi, tekrar deneyin.')),
+      );
     }
+  }
+
+  Future<void> _openTeamChat() async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    final memberIds =
+        _members.map((m) => m.userId).where((id) => id.isNotEmpty).toList();
+    final convId = await MessageService.findOrCreateTeamConversation(
+      widget.team.id,
+      widget.team.name,
+      memberIds,
+    );
+    if (!mounted) return;
+    setState(() => _opening = false);
+    if (convId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sohbet açılamadı, tekrar deneyin.')),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChatDetailScreen(
+          threadId: convId,
+          otherName: widget.team.name,
+        ),
+      ),
+    );
   }
 
   @override
@@ -42,16 +117,20 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
             style: HgText.title.copyWith(color: c.text, shadows: null)),
         actions: [
           IconButton(
-            icon: Icon(Icons.chat_bubble_outline, color: c.violet),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Ekip sohbeti yakında')),
-              );
-            },
+            icon: _opening
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: c.violet))
+                : Icon(Icons.chat_bubble_outline, color: c.violet),
+            onPressed: _opening ? null : _openTeamChat,
           ),
         ],
       ),
-      body: ListView(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
         padding: const EdgeInsets.all(HgSpace.lg),
         children: [
           // ── Üyeler ──
@@ -61,7 +140,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
             onTap: _showInviteSheet,
           ),
           const SizedBox(height: HgSpace.sm),
-          ...team.members.map((m) => Padding(
+          ..._members.map((m) => Padding(
                 padding: const EdgeInsets.only(bottom: HgSpace.xs),
                 child: _MemberTile(member: m),
               )),
@@ -71,10 +150,10 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
           Text('Paylaşımlı Görevler',
               style: HgText.heading.copyWith(color: c.text, shadows: null)),
           const SizedBox(height: HgSpace.sm),
-          if (team.tasks.isEmpty)
+          if (_tasks.isEmpty)
             _PlaceholderTile(text: 'Henüz görev yok', c: c)
           else
-            ...team.tasks.map((t) => Padding(
+            ..._tasks.map((t) => Padding(
                   padding: const EdgeInsets.only(bottom: HgSpace.xs),
                   child: _SharedTaskTile(task: t),
                 )),
@@ -84,10 +163,10 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
           Text('Paylaşımlı CRM',
               style: HgText.heading.copyWith(color: c.text, shadows: null)),
           const SizedBox(height: HgSpace.sm),
-          if (team.crmEntries.isEmpty)
+          if (_crmEntries.isEmpty)
             _PlaceholderTile(text: 'Henüz müşteri yok', c: c)
           else
-            ...team.crmEntries.map((e) => Padding(
+            ..._crmEntries.map((e) => Padding(
                   padding: const EdgeInsets.only(bottom: HgSpace.xs),
                   child: HgCard(
                     child: Row(
@@ -138,7 +217,7 @@ class _SectionHeader extends StatelessWidget {
               style:
                   HgText.heading.copyWith(color: c.text, shadows: null)),
           const Spacer(),
-          if (trailing != null) trailing!,
+          ?trailing,
         ],
       ),
     );

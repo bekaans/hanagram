@@ -50,7 +50,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     if (session == null) return;
 
     _threadsSub?.cancel();
-    _threadsSub = MessageService.subscribeToThreads(session.userId).listen((_) {
+    _threadsSub = MessageService.subscribeToThreads().listen((_) {
       if (mounted) _loadThreads();
     });
   }

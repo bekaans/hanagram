@@ -161,13 +161,13 @@ class TaskService {
     String? dueTime,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return null;
 
       // Etiketleme kontrolü: grup + takip zorunluluğu
       if (assignedTo != null && groupId != null) {
         final canTag = await canTagUser(
-          targetAuthId: assignedTo,
+          targetUserId: assignedTo,
           groupId: groupId,
         );
         if (!canTag) return null; // Etiketleme engellendi
@@ -191,7 +191,7 @@ class TaskService {
         final creatorProfile = await _db
             .from('users')
             .select('full_name')
-            .eq('auth_id', userId)
+            .eq('id', userId)
             .maybeSingle();
         final creatorName = creatorProfile?['full_name'] as String? ?? 'Birisi';
 
@@ -215,7 +215,7 @@ class TaskService {
     int limit = 50,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db
@@ -247,7 +247,7 @@ class TaskService {
   /// Belirli bir tarihteki görevleri getir (takvim için).
   static Future<List<TaskItem>> getTasksForDate(DateTime date) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final dateStr = date.toIso8601String().split('T').first;
@@ -311,7 +311,7 @@ class TaskService {
     String customerPhone = '',
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return null;
 
       final result = await _db.from('appointments').insert({
@@ -351,7 +351,7 @@ class TaskService {
   static Future<List<Appointment>> getAppointmentsForDate(
       DateTime date) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final dateStr = date.toIso8601String().split('T').first;
@@ -385,7 +385,7 @@ class TaskService {
   static Future<List<Appointment>> searchAppointments(
       String query) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db
@@ -417,19 +417,19 @@ class TaskService {
   static Future<List<TaskItem>> searchTasksByAssignee(
       String query) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       // Önce assignee adıyla eşleşen kullanıcıları bul
       final users = await _db
           .from('users')
-          .select('auth_id')
+          .select('id')
           .ilike('full_name', '%$query%');
 
       if (users.isEmpty) return [];
 
       final userIds =
-          (users as List).map((u) => (u as Map)['auth_id'] as String).toList();
+          (users as List).map((u) => (u as Map)['id'] as String).toList();
 
       // O kullanıcıların oluşturduğu veya atandığı görevleri çek
       final orParts = <String>[
@@ -470,27 +470,20 @@ class TaskService {
 
   /// Bir kişinin etiketlenebilir olup olmadığını kontrol et.
   /// Kişi işletme grubunda OLMALI VE işletmeyi takip ETMELİ.
+  /// [targetUserId] `users.id` olmalı (auth id değil).
   static Future<bool> canTagUser({
-    required String targetAuthId,
+    required String targetUserId,
     required String groupId,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
-      if (userId == null) return false;
+      final myId = await SupabaseService.myDbId();
+      if (myId == null) return false;
 
       // 1. Kişi işletme grubunda mı?
-      final targetRow = await _db
-          .from('users')
-          .select('id')
-          .eq('auth_id', targetAuthId)
-          .maybeSingle();
-      final targetDbId = targetRow?['id'] as String?;
-      if (targetDbId == null) return false;
-
       final groupMember = await _db
           .from('group_members')
           .select('id')
-          .eq('user_id', targetDbId)
+          .eq('user_id', targetUserId)
           .eq('group_id', groupId)
           .maybeSingle();
       if (groupMember == null) return false;
@@ -499,8 +492,8 @@ class TaskService {
       final followRow = await _db
           .from('followers')
           .select('id')
-          .eq('follower_id', targetDbId)
-          .eq('following_id', await _getMyDbId())
+          .eq('follower_id', targetUserId)
+          .eq('following_id', myId)
           .maybeSingle();
       if (followRow == null) return false;
 
@@ -510,22 +503,10 @@ class TaskService {
     }
   }
 
-  /// Kullanıcının DB id'sini getir (auth_id'den).
-  static Future<String> _getMyDbId() async {
-    final userId = SupabaseService.user?.id;
-    if (userId == null) return '';
-    final row = await _db
-        .from('users')
-        .select('id')
-        .eq('auth_id', userId)
-        .maybeSingle();
-    return row?['id'] as String? ?? '';
-  }
-
   /// Kullanıcının kabul edilmiş connections listesini getir.
   static Future<List<Map<String, dynamic>>> getMyConnections() async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db

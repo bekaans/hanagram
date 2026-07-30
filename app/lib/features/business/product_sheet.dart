@@ -2,10 +2,10 @@
 //
 // customer_sheet.dart kalıbına göre. product.create veya product.update çağırır.
 import 'package:flutter/material.dart';
-import '../../core/app_state.dart';
+import '../../core/product_service.dart';
 import 'package:hanagram_design/design.dart';
 import 'product_item.dart';
-import 'core_error_helper.dart';
+
 class ProductSheet extends StatefulWidget {
   const ProductSheet({
     super.key,
@@ -53,36 +53,32 @@ class _ProductSheetState extends State<ProductSheet> {
 
     setState(() => _isSaving = true);
     try {
-      final app = AppScope.of(context);
       final p = widget.product;
       final priceKurus =
           (double.tryParse(_priceCtrl.text.replaceAll(',', '.')) ?? 0) * 100;
       final priceInt = priceKurus.round();
 
-      if (p == null) {
-        app.core.call('product.create', {
-          'businessId': widget.businessId,
-          'name': _nameCtrl.text,
-          'description': _descCtrl.text,
-          'priceKurus': priceInt,
-          'category': _categoryCtrl.text,
-        });
-      } else {
-        app.core.call('product.update', {
-          'businessId': widget.businessId,
-          'productId': p.id,
-          'name': _nameCtrl.text,
-          'description': _descCtrl.text,
-          'priceKurus': priceInt,
-          'category': _categoryCtrl.text,
-        });
-      }
+      final ok = p == null
+          ? await ProductService.createProduct(
+              name: _nameCtrl.text,
+              description: _descCtrl.text,
+              priceKurus: priceInt,
+              category: _categoryCtrl.text,
+            )
+          : await ProductService.updateProduct(
+              productId: p.id,
+              name: _nameCtrl.text,
+              description: _descCtrl.text,
+              priceKurus: priceInt,
+              category: _categoryCtrl.text,
+            );
 
-      if (mounted) Navigator.of(context).pop(true);
-    } on Exception catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+      if (ok) {
+        Navigator.of(context).pop(true);
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(extractErrorMessage(e))),
+          const SnackBar(content: Text('Kaydedilemedi, tekrar deneyin.')),
         );
       }
     } finally {

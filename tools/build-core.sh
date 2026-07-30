@@ -117,7 +117,7 @@ build_android() {
       -DANDROID_PLATFORM=android-24 \
       -DCMAKE_CXX_FLAGS="-fvisibility=hidden" \
       -DBUILD_SHARED_LIBS=ON 2>&1
-    cmake --build . -j$(nproc) 2>&1
+    cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) 2>&1
     echo "  ✓ $ABI derlendi"
   done
 
@@ -139,7 +139,7 @@ build_linux() {
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_CXX_FLAGS="-fvisibility=hidden" 2>&1
-  cmake --build . -j$(nproc) 2>&1
+  cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) 2>&1
   echo "✓ Linux: libhanagram.so derlendi"
 }
 

@@ -62,7 +62,7 @@ class CrmService {
     String status = 'completed',
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return null;
 
       final result = await _db.from('crm_entries').insert({
@@ -89,7 +89,7 @@ class CrmService {
     int offset = 0,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       var query = _db
@@ -114,7 +114,7 @@ class CrmService {
   /// Müşteri adına göre CRM kayıtlarını getir (randevu ekranında arama için).
   static Future<List<CrmEntry>> getEntriesByCustomer(String customerName) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db
@@ -134,7 +134,7 @@ class CrmService {
   /// Son satış yapılan kişileri getir (otomatik tamamlama için).
   static Future<List<Map<String, dynamic>>> recentCustomers({int limit = 10}) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db
@@ -164,7 +164,7 @@ class CrmService {
   /// Belirli bir müşterinin tüm geçmişini getir (satış + randevu).
   static Future<Map<String, dynamic>> getCustomerHistory(String customerName) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return {'entries': <CrmEntry>[], 'totalSpent': 0, 'visitCount': 0};
 
       final result = await _db
@@ -194,7 +194,7 @@ class CrmService {
     DateTime? to,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return 0;
 
       var query = _db
@@ -218,6 +218,84 @@ class CrmService {
       );
     } catch (_) {
       return 0;
+    }
+  }
+
+  // ─── SATIŞLAR (sale_screen.dart) ───
+
+  /// Yeni satış kaydet — ürün kalemleriyle (`type='sale'` crm_entries kaydı).
+  static Future<String?> createSale({
+    required List<Map<String, dynamic>> items,
+    String customerName = '',
+    String customerPhone = '',
+    String paymentMethod = 'cash',
+    String note = '',
+  }) async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return null;
+
+      final totalKurus = items.fold<int>(
+        0,
+        (sum, i) =>
+            sum +
+            ((i['quantity'] as num?)?.toInt() ?? 0) *
+                ((i['unitPriceKurus'] as num?)?.toInt() ?? 0),
+      );
+
+      final result = await _db.from('crm_entries').insert({
+        'user_id': userId,
+        'type': 'sale',
+        'title': customerName.isNotEmpty ? 'Satış — $customerName' : 'Satış',
+        'amount': totalKurus,
+        'customer_name': customerName,
+        'customer_phone': customerPhone,
+        'notes': note,
+        'payment_method': paymentMethod,
+        'source': 'direct',
+        'line_items': items,
+      }).select('id').maybeSingle();
+
+      return result?['id'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Satış geçmişini getir (sale_screen.dart listesi).
+  static Future<List<Map<String, dynamic>>> getSales({int limit = 100}) async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return [];
+
+      final result = await _db
+          .from('crm_entries')
+          .select()
+          .eq('user_id', userId)
+          .eq('type', 'sale')
+          .order('date', ascending: false)
+          .limit(limit);
+
+      return (result as List).cast<Map<String, dynamic>>().map((e) {
+        final lineItemsRaw = e['line_items'];
+        return {
+          'id': e['id'],
+          'businessId': e['user_id'],
+          'customerId': '',
+          'customerName': e['customer_name'] ?? '',
+          'items': lineItemsRaw is List ? lineItemsRaw : const [],
+          'totalKurus': e['amount'],
+          'paymentMethod': e['payment_method'] ?? 'cash',
+          'note': e['notes'] ?? '',
+          'source': e['source'] ?? 'direct',
+          'createdAt':
+              DateTime.tryParse(e['date'] as String? ?? '')
+                      ?.millisecondsSinceEpoch ??
+                  0,
+        };
+      }).toList();
+    } catch (_) {
+      return [];
     }
   }
 }

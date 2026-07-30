@@ -1,9 +1,10 @@
 // Hanagram — ürün yönetimi ekranı
 //
 // İşletmenin ürün listesini gösterir, arama destekler, ekleme/düzenleme
-// sheet'ini açar. Tüm iş mantığı C++ çekirdekte.
+// sheet'ini açar. Veri Supabase products tablosundan gelir.
 import 'package:flutter/material.dart';
 import '../../core/app_state.dart';
+import '../../core/product_service.dart';
 import 'package:hanagram_design/design.dart';
 import 'product_item.dart';
 import 'product_sheet.dart';
@@ -30,24 +31,9 @@ class _ProductScreenState extends State<ProductScreen> {
     setState(() {
       _isLoading = true;
     });
-    try {
-      final app = AppScope.of(context);
-      final bizId = app.session!.userId;
-      final result = app.core.call('product.list', {
-        'businessId': bizId,
-        'query': _query,
-      });
-      final items = (result['items'] as List?) ?? const [];
-      _products = items
-          .map((e) =>
-              ProductItem.fromJson((e as Map).cast<String, dynamic>()))
-          .toList();
-    } on Exception catch (_) {
-      // Core/Supabase yoksa örnek veri göster
-      _products = _sampleProducts();
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    final result = await ProductService.getProducts(query: _query);
+    _products = result.map((e) => ProductItem.fromJson(e)).toList();
+    if (mounted) setState(() => _isLoading = false);
   }
 
   void _openAddSheet() {
@@ -157,37 +143,4 @@ class _ProductScreenState extends State<ProductScreen> {
       ),
     );
   }
-}
-
-// ─── Örnek ürün verisi (core yokken) ───
-
-List<ProductItem> _sampleProducts() {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  return [
-    ProductItem(
-      id: 'sp1', businessId: 'demo', name: 'Makyaj Kampanyası',
-      description: 'Profesyonel makyaj + fotoğraf çekimi paketi',
-      priceKurus: 150000, category: 'Güzellik', createdAt: now - 86400000 * 30,
-    ),
-    ProductItem(
-      id: 'sp2', businessId: 'demo', name: 'Saç Bakım Paketi',
-      description: 'Keratin bakım + saç kesimi + şekillendirme',
-      priceKurus: 250000, category: 'Saç', createdAt: now - 86400000 * 20,
-    ),
-    ProductItem(
-      id: 'sp3', businessId: 'demo', name: 'Kaş Laminasyonu',
-      description: '6-8 hafta kalıcı kaş şekillendirme',
-      priceKurus: 80000, category: 'Güzellik', createdAt: now - 86400000 * 15,
-    ),
-    ProductItem(
-      id: 'sp4', businessId: 'demo', name: 'Profesyonel Çekim',
-      description: '1 saat stüdyo çekimi, 20 retouched fotoğraf',
-      priceKurus: 320000, category: 'Çekim', createdAt: now - 86400000 * 10,
-    ),
-    ProductItem(
-      id: 'sp5', businessId: 'demo', name: 'Cilt Bakımı',
-      description: 'Derinlemesine cilt temizliği + nemlendirme',
-      priceKurus: 120000, category: 'Cilt', createdAt: now - 86400000 * 5,
-    ),
-  ];
 }

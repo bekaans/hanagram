@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import '../../core/message_models.dart';
 import '../../core/message_service.dart';
 import 'package:hanagram_design/design.dart';
+import '../settings/settings_provider.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   const ChatDetailScreen({
@@ -33,6 +34,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _isLoading = true;
   bool _isSending = false;
   StreamSubscription<ChatMessage>? _msgSub;
+  DateTime? _otherLastReadAt;
+  bool _otherShowsReceipts = false;
+  Timer? _receiptTimer;
 
   @override
   void initState() {
@@ -40,6 +44,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _loadMessages();
     _subscribeMessages();
     _markAsRead();
+    _loadReadReceipt();
+    // Karşı tarafın "okundu" bilgisi için ayrı bir realtime kanalı yok —
+    // periyodik olarak tazeleniyor (WhatsApp'taki gibi anlık değil, birkaç
+    // saniyelik gecikmeyle "Görüldü" göstermek yeterli).
+    _receiptTimer = Timer.periodic(
+        const Duration(seconds: 8), (_) => _loadReadReceipt());
   }
 
   @override
@@ -47,8 +57,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _msgSub?.cancel();
+    _receiptTimer?.cancel();
     MessageService.unsubscribeMessages();
     super.dispose();
+  }
+
+  Future<void> _loadReadReceipt() async {
+    final info = await MessageService.getOtherReadReceipt(widget.threadId);
+    if (mounted) {
+      setState(() {
+        _otherLastReadAt = info.lastReadAt;
+        _otherShowsReceipts = info.showsReceipts;
+      });
+    }
   }
 
   void _subscribeMessages() {
@@ -98,6 +119,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final text = _msgCtrl.text.trim();
     if (text.isEmpty || _isSending) return;
 
+    SettingsScope.of(context).hapticTap();
     setState(() => _isSending = true);
     _msgCtrl.clear();
 
@@ -214,8 +236,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: HgSpace.md, vertical: HgSpace.sm),
                         itemCount: _messages.length,
-                        itemBuilder: (_, i) => _MessageBubble(
-                            msg: _messages[i], c: c),
+                        itemBuilder: (_, i) {
+                          final msg = _messages[i];
+                          final seen = msg.isMe &&
+                              _otherShowsReceipts &&
+                              _otherLastReadAt != null &&
+                              !msg.createdAt.isAfter(_otherLastReadAt!);
+                          return _MessageBubble(msg: msg, c: c, seen: seen);
+                        },
                       ),
           ),
           // Alt giriş alanı — glass efektli
@@ -302,9 +330,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 // ─── Mesaj baloncuğu ───
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.msg, required this.c});
+  const _MessageBubble({required this.msg, required this.c, this.seen = false});
   final ChatMessage msg;
   final HgColors c;
+  final bool seen;
 
   String _timeStr() {
     final h = msg.createdAt.hour.toString().padLeft(2, '0');
@@ -368,8 +397,10 @@ class _MessageBubble extends StatelessWidget {
           ),
           if (isMe) ...[
             const SizedBox(width: 6),
-            Icon(CupertinoIcons.checkmark_circle_fill,
-                size: 14, color: c.violet),
+            seen
+                ? Icon(Icons.done_all, size: 14, color: c.success)
+                : Icon(CupertinoIcons.checkmark_circle_fill,
+                    size: 14, color: c.violet),
           ],
         ],
       ),

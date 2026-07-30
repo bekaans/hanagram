@@ -2,19 +2,23 @@
 //
 // Uyarlanabilir gezinme: telefonda alt bar (liquid glass, scroll'da gizlenir),
 // tablet ve masaüstünde yan ray. Aynı kod beş platformda çalışır.
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
+import '../core/notification_service.dart';
+import '../core/supabase_service.dart';
 import 'package:hanagram_design/design.dart';
 import '../features/business/business_screen.dart';
 import '../features/discover/discover_screen.dart';
 import '../features/feed/feed_screen.dart';
 import '../features/messages/messages_screen.dart';
 import '../features/profile/profile_screen.dart';
-import 'create_sheet.dart';
+import '../features/settings/settings_provider.dart';
+import 'compose_sheet.dart';
 import 'shell_widgets.dart';
 
 class NavItem {
@@ -36,6 +40,11 @@ class _AppShellState extends State<AppShell> {
   bool _barHidden = false;
   double _lastScrollOffset = 0;
 
+  StreamSubscription<Map<String, dynamic>>? _taskSub;
+  StreamSubscription<Map<String, dynamic>>? _connectionSub;
+  StreamSubscription<Map<String, dynamic>>? _appointmentSub;
+  StreamSubscription<Map<String, dynamic>>? _messageSub;
+
   @override
   void initState() {
     super.initState();
@@ -45,11 +54,89 @@ class _AppShellState extends State<AppShell> {
       app.loadDiscover();
       // Tab controller'ı dinle — başka ekranlardan sekme geçişi için
       app.tabController.addListener(_onTabChanged);
+      final settings = SettingsScope.of(context);
+      _startRealtimeNotifications(app.session?.userId, settings);
+      settings.pingOnline();
     });
+  }
+
+  /// Uygulama açıkken canlı bildirim — görev/bağlantı/randevu/mesaj
+  /// değişiklikleri anında SnackBar olarak gösterilir (push bildirim ayrı,
+  /// bu uygulama içi). Ayarlar'daki "Bildirimleri aç" ana anahtarı kapalıysa
+  /// hiçbiri başlamaz; "Mesaj bildirimleri"/"Randevu hatırlatmaları" kendi
+  /// bildirim türünü özel olarak kapatır.
+  void _startRealtimeNotifications(String? userId, SettingsProvider settings) {
+    if (userId == null || userId.isEmpty) return;
+    if (!settings.notificationsEnabled) return;
+
+    _taskSub = NotificationService.listenToTasks(userId, (task) {
+      _showRealtimeSnack('Yeni görev: ${task['title'] ?? ''}');
+    });
+    _connectionSub = NotificationService.listenToConnectionRequests(userId, (_) {
+      _showRealtimeSnack('Yeni bağlantı isteğin var');
+    });
+    if (settings.messageNotifications) {
+      _messageSub = NotificationService.listenToMessages((message) {
+        _handleIncomingMessage(userId, message);
+      });
+    }
+    if (!settings.appointmentReminders) return;
+    _appointmentSub = NotificationService.listenToAppointments(userId, (appt) {
+      final status = appt['status'] as String?;
+      final title = appt['title'] as String? ?? 'Randevu';
+      final text = switch (status) {
+        'confirmed' => '"$title" randevusu onaylandı',
+        'cancelled' => '"$title" randevusu iptal edildi',
+        'completed' => '"$title" randevusu tamamlandı',
+        _ => '"$title" randevusunda güncelleme var',
+      };
+      _showRealtimeSnack(text);
+    });
+  }
+
+  /// Gelen mesajın gerçekten benim bir konuşmama ait olup olmadığını (Realtime
+  /// join filtrelemediği için tüm mesajlar akar) ve benden gelmediğini
+  /// kontrol edip, öyleyse gönderenin adıyla bildirim gösterir.
+  Future<void> _handleIncomingMessage(
+      String userId, Map<String, dynamic> message) async {
+    final senderId = message['sender_id'] as String?;
+    final conversationId = message['conversation_id'] as String?;
+    if (senderId == null || senderId == userId || conversationId == null) {
+      return;
+    }
+    try {
+      final db = SupabaseService.client;
+      final membership = await db
+          .from('conversation_members')
+          .select('user_id')
+          .eq('conversation_id', conversationId)
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (membership == null) return;
+
+      final sender = await db
+          .from('users')
+          .select('full_name')
+          .eq('id', senderId)
+          .maybeSingle();
+      final senderName = sender?['full_name'] as String? ?? 'Birisi';
+      _showRealtimeSnack('$senderName: yeni mesaj');
+    } catch (_) {}
+  }
+
+  void _showRealtimeSnack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text), duration: const Duration(seconds: 4)),
+    );
   }
 
   @override
   void dispose() {
+    _taskSub?.cancel();
+    _connectionSub?.cancel();
+    _appointmentSub?.cancel();
+    _messageSub?.cancel();
     // Listener'ı güvenli kaldır
     try {
       final app = AppScope.of(context);
@@ -106,6 +193,15 @@ class _AppShellState extends State<AppShell> {
     return pages[i.clamp(0, pages.length - 1)];
   }
 
+  void _selectTab(int i) {
+    SettingsScope.of(context).hapticTap();
+    setState(() {
+      _index = i;
+      _barHidden = false;
+      _lastScrollOffset = 0;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = HgTheme.of(context);
@@ -125,7 +221,7 @@ class _AppShellState extends State<AppShell> {
             SideRail(
               items: items,
               index: _index,
-              onSelect: (i) => setState(() => _index = i),
+              onSelect: _selectTab,
               onCompose: () => _showCreateSheet(context),
               extended: HgBreak.isDesktop(context),
             ),
@@ -162,13 +258,7 @@ class _AppShellState extends State<AppShell> {
               items: items,
               index: _index,
               hidden: _barHidden,
-              onSelect: (i) {
-                setState(() {
-                  _index = i;
-                  _barHidden = false;
-                  _lastScrollOffset = 0;
-                });
-              },
+              onSelect: _selectTab,
             ),
           ),
         ],
@@ -181,7 +271,7 @@ class _AppShellState extends State<AppShell> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const CreateSheet(),
+      builder: (_) => const ComposeSheet(),
     );
   }
 }

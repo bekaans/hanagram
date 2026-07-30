@@ -8,8 +8,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_state.dart';
 import '../../core/connection_service.dart';
+import '../../core/message_service.dart';
+import '../../core/post_service.dart';
 import '../../core/profile_service.dart';
 import '../../core/referral_service.dart';
+import '../../core/supabase_service.dart';
 import '../../core/verification_service.dart';
 import '../../core/utils.dart';
 import 'package:hanagram_design/design.dart';
@@ -43,7 +46,33 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   String? _referralCode;
   late TabController _tabCtrl;
 
+  // Görüntülenen profilin bilgileri — kendi profilim ya da widget.userId
+  // (handle) sahibinin gerçek verisi. `app.session` sadece KENDİ oturumumu
+  // temsil eder, başkasının profilini görüntülerken kullanılmaz.
+  String? _targetAuthId;
+  String? _targetDbId;
+  String _targetName = '';
+  String _targetHandle = '';
+  String _targetBio = '';
+  String _targetAccountType = 'personal';
+  bool _notFound = false;
+  DateTime? _targetLastSeenAt;
+  bool _targetShowOnlineStatus = true;
+
   bool get _isOwn => widget.isOwnProfile;
+
+  /// Başkasının profilinde çevrimiçi/son görülme metni — sadece o kullanıcı
+  /// "Çevrimiçi görünürlük" ayarını açık bıraktıysa gösterilir.
+  String? get _onlineStatusText {
+    if (_isOwn || !_targetShowOnlineStatus) return null;
+    final lastSeen = _targetLastSeenAt;
+    if (lastSeen == null) return null;
+    final diff = DateTime.now().toUtc().difference(lastSeen.toUtc());
+    if (diff.inMinutes < 5) return 'Çevrimiçi';
+    if (diff.inMinutes < 60) return 'Son görülme: ${diff.inMinutes} dk önce';
+    if (diff.inHours < 24) return 'Son görülme: ${diff.inHours} saat önce';
+    return 'Son görülme: ${diff.inDays} gün önce';
+  }
 
   @override
   void initState() {
@@ -60,15 +89,47 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
   Future<void> _loadProfileData() async {
     final app = AppScope.of(context);
-    final s = app.session;
-    if (s == null) return;
+
+    if (_isOwn) {
+      final s = app.session;
+      if (s == null) return;
+      _targetAuthId = SupabaseService.user?.id;
+      _targetDbId = s.userId;
+      _targetName = s.name;
+      _targetHandle = s.handle;
+      _targetBio = s.bio;
+      _targetAccountType = s.accountType;
+    } else {
+      final handle = widget.userId;
+      if (handle == null) return;
+      final profile = await ProfileService.getPublicProfile(handle);
+      if (profile == null) {
+        if (mounted) setState(() => _notFound = true);
+        return;
+      }
+      _targetAuthId = profile['auth_id'] as String?;
+      _targetDbId = profile['id'] as String?;
+      _targetName = profile['full_name'] as String? ?? '';
+      _targetHandle = profile['username'] as String? ?? '';
+      _targetBio = profile['bio'] as String? ?? '';
+      _targetAccountType = profile['account_type'] as String? ?? 'personal';
+      _targetLastSeenAt = DateTime.tryParse(profile['last_seen_at'] as String? ?? '');
+      _targetShowOnlineStatus = profile['show_online_status'] as bool? ?? true;
+    }
+
+    final authId = _targetAuthId;
+    final dbId = _targetDbId;
+    if (authId == null || dbId == null) {
+      if (mounted) setState(() => _notFound = true);
+      return;
+    }
 
     // Paralel olarak tüm profil verilerini çek
     final results = await Future.wait([
-      ProfileService.getProfileStats(s.userId),
-      VerificationService.isVerified(s.userId),
+      ProfileService.getProfileStats(authId),
+      VerificationService.isVerified(authId),
       ConnectionService.getMyConnections().catchError((_) => <Map<String, dynamic>>[]),
-      if (_isOwn) ReferralService.getMyCode(s.userId).catchError((_) => null),
+      if (_isOwn) ReferralService.getMyCode(dbId).catchError((_) => null),
     ]);
 
     final stats = results[0] as ProfileStatsData;
@@ -91,11 +152,22 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     final c = HgTheme.of(context);
     final app = AppScope.of(context);
-    final s = app.session;
-    if (s == null) return const SizedBox.shrink();
+    if (app.session == null) return const SizedBox.shrink();
+    if (_notFound) {
+      return Center(
+        child: EmptyState(
+          icon: CupertinoIcons.person_crop_circle_badge_xmark,
+          title: 'Kullanıcı bulunamadı',
+          message: 'Bu profil artık mevcut değil.',
+        ),
+      );
+    }
+    if (_targetDbId == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-    final isBusiness = s.accountType == 'business';
-    final isCreator = s.accountType == 'creator';
+    final isBusiness = _targetAccountType == 'business';
+    final isCreator = _targetAccountType == 'creator';
     final isPro = isBusiness || isCreator;
     final stats = _statsData;
 
@@ -131,35 +203,32 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                 ),
 
               // ─── Tab bar ───
-              if (_isOwn)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: HgSpace.lg),
-                  child: TabBar(
-                    controller: _tabCtrl,
-                    labelColor: c.violet,
-                    unselectedLabelColor: c.textMuted,
-                    indicatorColor: c.violet,
-                    indicatorSize: TabBarIndicatorSize.label,
-                    labelStyle: HgText.bodyStrong.copyWith(color: c.violet, shadows: null),
-                    unselectedLabelStyle: HgText.body.copyWith(color: c.textMuted, shadows: null),
-                    tabs: const [
-                      Tab(text: 'Profil'),
-                      Tab(text: 'Yorumlar'),
-                    ],
-                  ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: HgSpace.lg),
+                child: TabBar(
+                  controller: _tabCtrl,
+                  labelColor: c.violet,
+                  unselectedLabelColor: c.textMuted,
+                  indicatorColor: c.violet,
+                  indicatorSize: TabBarIndicatorSize.label,
+                  labelStyle: HgText.bodyStrong.copyWith(color: c.violet, shadows: null),
+                  unselectedLabelStyle: HgText.body.copyWith(color: c.textMuted, shadows: null),
+                  tabs: const [
+                    Tab(text: 'Profil'),
+                    Tab(text: 'Yorumlar'),
+                  ],
                 ),
+              ),
 
               // ─── Sekme içeriği ───
               Expanded(
-                child: _isOwn
-                    ? TabBarView(
-                        controller: _tabCtrl,
-                        children: [
-                          _buildProfileTab(c, app, s, isPro, stats),
-                          _buildReviewsTab(c),
-                        ],
-                      )
-                    : _buildProfileTab(c, app, s, isPro, stats),
+                child: TabBarView(
+                  controller: _tabCtrl,
+                  children: [
+                    _buildProfileTab(c, app, isPro, stats),
+                    _buildReviewsTab(c),
+                  ],
+                ),
               ),
             ],
           );
@@ -178,7 +247,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildProfileTab(HgColors c, AppState app, dynamic s, bool isPro, ProfileStatsData? stats) {
+  Widget _buildProfileTab(HgColors c, AppState app, bool isPro, ProfileStatsData? stats) {
     return RefreshIndicator(
       onRefresh: _loadProfileData,
       child: ListView(
@@ -197,17 +266,28 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
           // ── Profil başlığı ──
           ProfileHeader(
-            name: s.name,
-            handle: s.handle,
-            bio: s.bio,
+            name: _targetName,
+            handle: _targetHandle,
+            bio: _targetBio,
             isBusiness: isPro,
             isVerified: _isVerified,
           ),
+          if (_onlineStatusText != null) ...[
+            const SizedBox(height: HgSpace.xs),
+            Center(
+              child: Text(
+                _onlineStatusText!,
+                style: HgText.caption.copyWith(
+                  color: _onlineStatusText == 'Çevrimiçi' ? c.success : c.textMuted,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: HgSpace.xl),
 
           // ── İstatistikler ──
           ProfileStats(
-            targetAuthId: s.userId,
+            targetAuthId: _targetAuthId!,
             isOwner: _isOwn,
             isGranted: _isGranted,
           ),
@@ -215,7 +295,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
           // ── Aksiyon butonları ──
           ProfileActions(
-            onAction: (action) => _handleAction(context, action, s),
+            onAction: _handleAction,
             phone: stats?.phone ?? '',
             address: stats?.address ?? '',
             latitude: stats?.latitude,
@@ -237,7 +317,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             const SizedBox(height: HgSpace.xl),
 
             // ── Portfolyo grid ──
-            _PortfolioSection(c: c),
+            _PortfolioSection(c: c, authorId: _targetDbId!),
           ],
         ],
       ),
@@ -256,36 +336,24 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         ),
         children: [
           ProfileReviews(
-            onAction: (action) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text(
-                        'Yorum yazma yetkisi: sadece randevu sahipleri!')),
-              );
-            },
+            businessId: _targetDbId!,
+            canWrite: !_isOwn,
+            onWrote: _loadProfileData,
           ),
         ],
       ),
     );
   }
 
-  void _handleAction(BuildContext context, String action, dynamic s) {
+  void _handleAction(String action) {
     switch (action) {
       case 'message':
         if (_isOwn) {
           // Kendi profilimde → Mesajlar sekmesine git
-          final app = AppScope.of(context);
-          app.tabController.value = 3; // Mesajlar index
+          AppScope.of(context).tabController.value = 3; // Mesajlar index
         } else {
-          // Başka kullanıcının profili → DM aç
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => ChatDetailScreen(
-                threadId: 'dm_${widget.userId}',
-                otherName: s.name,
-              ),
-            ),
-          );
+          // Başka kullanıcının profili → gerçek DM'i bul/oluştur
+          _openDm();
         }
         break;
       case 'appointment':
@@ -296,16 +364,70 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         break;
     }
   }
+
+  Future<void> _openDm() async {
+    final targetId = _targetDbId;
+    if (targetId == null) return;
+    final convId = await MessageService.findOrCreateDm(targetId);
+    if (!mounted) return;
+
+    if (convId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sohbet açılamadı, tekrar deneyin.')),
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChatDetailScreen(
+          threadId: convId,
+          otherName: _targetName,
+        ),
+      ),
+    );
+  }
 }
 
 // ─── Portfolyo grid ───
 
-class _PortfolioSection extends StatelessWidget {
-  const _PortfolioSection({required this.c});
+class _PortfolioSection extends StatefulWidget {
+  const _PortfolioSection({required this.c, required this.authorId});
   final HgColors c;
+  final String authorId;
+
+  @override
+  State<_PortfolioSection> createState() => _PortfolioSectionState();
+}
+
+class _PortfolioSectionState extends State<_PortfolioSection> {
+  List<Map<String, dynamic>> _items = const [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final result = await PostService.getPortfolio(authorId: widget.authorId);
+    if (!mounted) return;
+    setState(() {
+      _items = result;
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final c = widget.c;
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_items.isEmpty) {
+      return const SizedBox.shrink();
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -338,8 +460,11 @@ class _PortfolioSection extends StatelessWidget {
                 crossAxisSpacing: 4,
                 childAspectRatio: 0.85,
               ),
-              itemCount: 6,
+              itemCount: _items.length,
               itemBuilder: (context, i) {
+                final item = _items[i];
+                final mediaUrl = item['mediaUrl'] as String? ?? '';
+                final isVideo = item['mediaType'] == 'video';
                 final colors = [
                   [c.violet, c.blue],
                   [c.coral, c.violet],
@@ -348,7 +473,9 @@ class _PortfolioSection extends StatelessWidget {
                   [c.success, c.blue],
                   [c.violet, c.coral],
                 ];
-                return Container(
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(HgRadius.sm),
+                  child: Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: colors[i % colors.length],
@@ -359,22 +486,28 @@ class _PortfolioSection extends StatelessWidget {
                         BorderRadius.circular(HgRadius.sm),
                   ),
                   child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Center(
-                        child: Icon(
-                          [
-                            CupertinoIcons.video_camera,
-                            CupertinoIcons.camera,
-                            CupertinoIcons.speaker_2,
-                            CupertinoIcons.music_mic,
-                            CupertinoIcons.paintbrush,
-                            CupertinoIcons.wand_stars
-                          ][i % 6],
-                          size: 24,
-                          color: Colors.white
-                              .withValues(alpha: 0.4),
+                      if (mediaUrl.isNotEmpty && !isVideo)
+                        Image.network(
+                          mediaUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Center(
+                            child: Icon(CupertinoIcons.photo,
+                                size: 24,
+                                color: Colors.white.withValues(alpha: 0.4)),
+                          ),
+                        )
+                      else
+                        Center(
+                          child: Icon(
+                            isVideo
+                                ? CupertinoIcons.video_camera
+                                : CupertinoIcons.photo,
+                            size: 24,
+                            color: Colors.white.withValues(alpha: 0.4),
+                          ),
                         ),
-                      ),
                       Positioned(
                         bottom: 4,
                         left: 5,
@@ -386,9 +519,7 @@ class _PortfolioSection extends StatelessWidget {
                                 color: Colors.white),
                             const SizedBox(width: 3),
                             Text(
-                                fmtCount([
-                                  45, 128, 67, 234, 89, 156
-                                ][i]),
+                                fmtCount((item['likes'] as num?)?.toInt() ?? 0),
                                 style: const TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
@@ -398,6 +529,7 @@ class _PortfolioSection extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
                   ),
                 );
               },

@@ -68,16 +68,52 @@ class NotificationService {
     }
   }
 
+  /// Yeni mesajları global olarak dinle (hangi konuşmada olursa olsun).
+  /// Realtime filtreleri join desteklemediği için TÜM mesaj eklemelerini
+  /// alır — çağıran, kendi konuşmalarından biri olup olmadığını kendisi
+  /// kontrol etmeli (bkz. app_shell.dart _startRealtimeNotifications).
+  static StreamSubscription<Map<String, dynamic>> listenToMessages(
+    void Function(Map<String, dynamic> message) onNewMessage,
+  ) {
+    late final RealtimeChannel channel;
+    final controller = StreamController<Map<String, dynamic>>(
+      onCancel: () => SupabaseService.client.removeChannel(channel),
+    );
+
+    channel = SupabaseService.client
+        .channel('messages-global')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          callback: (payload) {
+            if (payload.newRecord.isNotEmpty) {
+              controller.add(payload.newRecord);
+            }
+          },
+        )
+        .subscribe();
+
+    return controller.stream.listen(onNewMessage);
+  }
+
   // ─── Supabase Realtime Dinleme ───
+  //
+  // Her dinleyici tek-abonelikli bir StreamController üzerine kurulu;
+  // `onCancel` ile döndürülen StreamSubscription iptal edildiğinde altındaki
+  // Realtime kanalı da otomatik kapatılır (çağıran sadece `.cancel()` çağırır).
 
   /// Görev değişikliklerini dinle (başkası sana görev atadığında).
-  static StreamSubscription<List<Map<String, dynamic>>> listenToTasks(
+  static StreamSubscription<Map<String, dynamic>> listenToTasks(
     String userId,
     void Function(Map<String, dynamic> task) onNewTask,
   ) {
-    final controller = StreamController<Map<String, dynamic>>();
+    late final RealtimeChannel channel;
+    final controller = StreamController<Map<String, dynamic>>(
+      onCancel: () => SupabaseService.client.removeChannel(channel),
+    );
 
-    SupabaseService.client
+    channel = SupabaseService.client
         .channel('tasks-$userId')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
@@ -96,17 +132,20 @@ class NotificationService {
         )
         .subscribe();
 
-    return controller.stream.listen((task) {
-      onNewTask(task);
-    }) as StreamSubscription<List<Map<String, dynamic>>>;
+    return controller.stream.listen(onNewTask);
   }
 
   /// Bağlantı isteklerini dinle (biri seni arkadaş olarak eklediğinde).
-  static StreamSubscription<void> listenToConnectionRequests(
+  static StreamSubscription<Map<String, dynamic>> listenToConnectionRequests(
     String userId,
     void Function(Map<String, dynamic> request) onRequest,
   ) {
-    final channel = SupabaseService.client
+    late final RealtimeChannel channel;
+    final controller = StreamController<Map<String, dynamic>>(
+      onCancel: () => SupabaseService.client.removeChannel(channel),
+    );
+
+    channel = SupabaseService.client
         .channel('connections-$userId')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
@@ -119,21 +158,30 @@ class NotificationService {
           ),
           callback: (payload) {
             if (payload.newRecord.isNotEmpty) {
-              onRequest(payload.newRecord);
+              controller.add(payload.newRecord);
             }
           },
         )
         .subscribe();
 
-    return channel as StreamSubscription<void>;
+    return controller.stream.listen(onRequest);
   }
 
-  /// Randevu değişikliklerini dinle.
-  static void listenToAppointments(
+  /// Randevu değişikliklerini dinle (oluşturduğun VEYA katılımcısı olduğun).
+  static StreamSubscription<Map<String, dynamic>> listenToAppointments(
     String userId,
     void Function(Map<String, dynamic> appointment) onChange,
   ) {
-    SupabaseService.client
+    late final RealtimeChannel creatorChannel;
+    late final RealtimeChannel attendeeChannel;
+    final controller = StreamController<Map<String, dynamic>>(
+      onCancel: () {
+        SupabaseService.client.removeChannel(creatorChannel);
+        SupabaseService.client.removeChannel(attendeeChannel);
+      },
+    );
+
+    creatorChannel = SupabaseService.client
         .channel('appt-creator-$userId')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
@@ -146,13 +194,13 @@ class NotificationService {
           ),
           callback: (payload) {
             if (payload.newRecord.isNotEmpty) {
-              onChange(payload.newRecord);
+              controller.add(payload.newRecord);
             }
           },
         )
         .subscribe();
 
-    SupabaseService.client
+    attendeeChannel = SupabaseService.client
         .channel('appt-attendee-$userId')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
@@ -165,10 +213,12 @@ class NotificationService {
           ),
           callback: (payload) {
             if (payload.newRecord.isNotEmpty) {
-              onChange(payload.newRecord);
+              controller.add(payload.newRecord);
             }
           },
         )
         .subscribe();
+
+    return controller.stream.listen(onChange);
   }
 }

@@ -1,11 +1,11 @@
 // Hanagram — müşteri ekle/düzenle sheet
 //
-// appointment_sheet.dart örneğine göre. customer.create veya customer.update çağırır.
+// CustomerService.createCustomer/updateCustomer çağırır (Supabase customers tablosu).
 import 'package:flutter/material.dart';
-import '../../core/app_state.dart';
+import '../../core/customer_service.dart';
 import 'package:hanagram_design/design.dart';
 import 'customer_item.dart';
-import 'core_error_helper.dart';
+
 class CustomerSheet extends StatefulWidget {
   const CustomerSheet({
     super.key,
@@ -57,38 +57,36 @@ class _CustomerSheetState extends State<CustomerSheet> {
 
     setState(() => _isSaving = true);
     try {
-      final app = AppScope.of(context);
       final c = widget.customer;
+      final tags = _tagsCtrl.text
+          .split(',')
+          .map((t) => t.trim())
+          .where((t) => t.isNotEmpty)
+          .toList();
 
-      if (c == null) {
-        // Yeni müşteri ekle
-        app.core.call('customer.create', {
-          'businessId': widget.businessId,
-          'name': _nameCtrl.text,
-          'phone': _phoneCtrl.text,
-          'email': _emailCtrl.text,
-          'note': _noteCtrl.text,
-          'tags': _tagsCtrl.text.split(',').map((t) => t.trim()).toList(),
-          'linkedUserId': '',
-        });
+      final ok = c == null
+          ? await CustomerService.createCustomer(
+              name: _nameCtrl.text,
+              phone: _phoneCtrl.text,
+              email: _emailCtrl.text,
+              note: _noteCtrl.text,
+              tags: tags,
+            )
+          : await CustomerService.updateCustomer(
+              customerId: c.id,
+              name: _nameCtrl.text,
+              phone: _phoneCtrl.text,
+              email: _emailCtrl.text,
+              note: _noteCtrl.text,
+              tags: tags,
+            );
+
+      if (!mounted) return;
+      if (ok) {
+        Navigator.of(context).pop(true);
       } else {
-        // Müşteri güncelle
-        app.core.call('customer.update', {
-          'businessId': widget.businessId,
-          'customerId': c.id,
-          'name': _nameCtrl.text,
-          'phone': _phoneCtrl.text,
-          'email': _emailCtrl.text,
-          'note': _noteCtrl.text,
-          'tags': _tagsCtrl.text.split(',').map((t) => t.trim()).toList(),
-        });
-      }
-
-      if (mounted) Navigator.of(context).pop(true);
-    } on Exception catch (e) {
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(extractErrorMessage(e))),
+          const SnackBar(content: Text('Kaydedilemedi, tekrar deneyin.')),
         );
       }
     } finally {

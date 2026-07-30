@@ -9,6 +9,7 @@ import '../../core/app_state.dart';
 import '../../core/utils.dart';
 import 'package:hanagram_design/design.dart';
 import '../profile/profile_screen.dart';
+import '../settings/settings_provider.dart';
 
 // ─── Gönderi kartı ───
 
@@ -21,7 +22,7 @@ class PostCard extends StatefulWidget {
 }
 
 class _PostCardState extends State<PostCard> {
-  bool _liked = false;
+  late bool _liked = widget.item.likedByMe;
   bool _saved = false;
   DateTime? _appeared;
 
@@ -153,11 +154,13 @@ class _PostCardState extends State<PostCard> {
                   children: [
                     _Action(
                       icon: _liked ? CupertinoIcons.heart_fill : CupertinoIcons.heart,
-                      label: fmtCount(it.likes + (_liked ? 1 : 0)),
+                      label: fmtCount(
+                          it.likes - (it.likedByMe ? 1 : 0) + (_liked ? 1 : 0)),
                       color: _liked ? c.coral : c.textMuted,
                       onTap: () {
+                        SettingsScope.of(context).hapticTap();
                         setState(() => _liked = !_liked);
-                        if (_liked) app.signal(it.id, 'like');
+                        app.signal(it.id, 'like');
                       },
                     ),
                     const SizedBox(width: HgSpace.xl),

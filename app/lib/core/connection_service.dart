@@ -84,10 +84,10 @@ class ConnectionService {
     }
   }
 
-  /// Bağlantı isteği gönder.
+  /// Bağlantı isteği gönder. [targetUserId] `users.id` olmalı (auth id değil).
   static Future<bool> sendRequest(String targetUserId) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return false;
 
       // Zaten bağlantı var mı?
@@ -142,7 +142,7 @@ class ConnectionService {
   /// Gelen bekleyen istekleri getir (ham map).
   static Future<List<Map<String, dynamic>>> getPendingRequests() async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db
@@ -164,7 +164,7 @@ class ConnectionService {
   /// Tüm bağlantıları getir (kabul edilenler, ham map).
   static Future<List<Map<String, dynamic>>> getMyConnections() async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       final result = await _db

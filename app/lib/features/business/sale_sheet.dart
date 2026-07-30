@@ -1,12 +1,12 @@
 // Hanagram — yeni satış kaydetme sheet
 //
-// İşletmenin ürün listesinden seçim yapıp satış kaydeder.
+// İşletmenin ürün listesinden seçim yapıp satış kaydeder (Supabase crm_entries).
 import 'package:flutter/material.dart';
-import '../../core/app_state.dart';
+import '../../core/crm_service.dart';
+import '../../core/product_service.dart';
 import 'package:hanagram_design/design.dart';
 import '../../core/utils.dart';
 import 'product_item.dart';
-import 'core_error_helper.dart';
 
 class SaleSheet extends StatefulWidget {
   const SaleSheet({super.key, required this.businessId});
@@ -38,21 +38,9 @@ class _SaleSheetState extends State<SaleSheet> {
   }
 
   Future<void> _loadProducts() async {
-    try {
-      final app = AppScope.of(context);
-      final result = app.core.call('product.list', {
-        'businessId': widget.businessId,
-      });
-      final items = (result['items'] as List?) ?? const [];
-      _products = items
-          .map((e) =>
-              ProductItem.fromJson((e as Map).cast<String, dynamic>()))
-          .toList();
-    } on CoreError {
-      // Ürün listesi yüklenemezse boş kalır
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    final result = await ProductService.getProducts();
+    _products = result.map((e) => ProductItem.fromJson(e)).toList();
+    if (mounted) setState(() => _isLoading = false);
   }
 
   void _addLine(ProductItem product) {
@@ -89,7 +77,6 @@ class _SaleSheetState extends State<SaleSheet> {
 
     setState(() => _isSaving = true);
     try {
-      final app = AppScope.of(context);
       final items = _lines
           .map((l) => {
                 'productId': l.productId,
@@ -99,18 +86,18 @@ class _SaleSheetState extends State<SaleSheet> {
               })
           .toList();
 
-      app.core.call('sale.create', {
-        'businessId': widget.businessId,
-        'customerName': _customerCtrl.text,
-        'paymentMethod': _paymentMethod,
-        'items': items,
-      });
+      final saleId = await CrmService.createSale(
+        items: items,
+        customerName: _customerCtrl.text,
+        paymentMethod: _paymentMethod,
+      );
 
-      if (mounted) Navigator.of(context).pop(true);
-    } on Exception catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+      if (saleId != null) {
+        Navigator.of(context).pop(true);
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(extractErrorMessage(e))),
+          const SnackBar(content: Text('Satış kaydedilemedi, tekrar deneyin.')),
         );
       }
     } finally {

@@ -382,7 +382,7 @@ class _SettingsContent extends StatelessWidget {
                     await SupabaseService.client.auth.updateUser(
                       sup.UserAttributes(email: newEmail),
                     );
-                    Navigator.pop(ctx);
+                    if (ctx.mounted) Navigator.pop(ctx);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -487,7 +487,7 @@ class _SettingsContent extends StatelessWidget {
                     await SupabaseService.client.auth.updateUser(
                       sup.UserAttributes(password: newPass),
                     );
-                    Navigator.pop(ctx);
+                    if (ctx.mounted) Navigator.pop(ctx);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -548,6 +548,7 @@ class _SettingsContent extends StatelessWidget {
               // ── 1. Supabase oturumunu kapat ──
               try {
                 await sup.Supabase.instance.client.auth.signOut();
+                SupabaseService.clearCache();
               } catch (_) {}
               // ── 2. Tüm SharedPreferences verilerini sil ──
               try {

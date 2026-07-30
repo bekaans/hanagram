@@ -1,9 +1,11 @@
 // Hanagram — ekip yönetimi listesi
 //
 // Arkadram ekibi oluşturma, üyeleri davet etme, görev/CRM paylaşımı.
+// Veri Supabase business_groups/group_members tablolarından gelir.
 // Detay ekranı team_detail_screen.dart, sheet'ler team_sheet.dart'ta.
 import 'package:flutter/material.dart';
 import 'package:hanagram_design/design.dart';
+import '../../core/team_service.dart';
 import 'team_item.dart';
 import 'team_sheet.dart';
 import 'team_detail_screen.dart';
@@ -16,16 +18,33 @@ class TeamScreen extends StatefulWidget {
 }
 
 class _TeamScreenState extends State<TeamScreen> {
-  late final List<TeamItem> _teams = sampleTeams();
+  List<TeamItem> _teams = const [];
+  bool _isLoading = true;
 
-  void _createTeam(String name) {
-    setState(() {
-      _teams.add(TeamItem(
-        id: 't${DateTime.now().millisecondsSinceEpoch}',
-        name: name,
-        members: [const TeamMember(name: 'Sen', role: 'Yönetici')],
-      ));
-    });
+  @override
+  void initState() {
+    super.initState();
+    _loadTeams();
+  }
+
+  Future<void> _loadTeams() async {
+    setState(() => _isLoading = true);
+    final result = await TeamService.getMyTeams();
+    _teams = result.map((g) {
+      final members = (g['members'] as List).cast<Map<String, dynamic>>();
+      return TeamItem(
+        id: g['id'] as String,
+        name: g['name'] as String,
+        members: members
+            .map((m) => TeamMember(
+                  name: m['name'] as String? ?? '',
+                  role: m['role'] as String? ?? 'Üye',
+                  userId: m['userId'] as String? ?? '',
+                ))
+            .toList(),
+      );
+    }).toList();
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _showCreateSheet() async {
@@ -35,7 +54,9 @@ class _TeamScreenState extends State<TeamScreen> {
       useSafeArea: true,
       builder: (_) => const CreateTeamSheet(),
     );
-    if (name != null && mounted) _createTeam(name);
+    if (name == null || !mounted) return;
+    final groupId = await TeamService.createTeam(name);
+    if (groupId != null) _loadTeams();
   }
 
   void _openDetail(TeamItem team) {
@@ -43,7 +64,7 @@ class _TeamScreenState extends State<TeamScreen> {
       context,
       MaterialPageRoute(builder: (_) => TeamDetailScreen(team: team)),
     ).then((updated) {
-      if (updated == true && mounted) setState(() {});
+      if (updated == true && mounted) _loadTeams();
     });
   }
 
@@ -64,21 +85,26 @@ class _TeamScreenState extends State<TeamScreen> {
         backgroundColor: c.violet,
         child: Icon(Icons.group_add, color: c.onBrand),
       ),
-      body: _teams.isEmpty
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _teams.isEmpty
           ? EmptyState(
               icon: Icons.group_outlined,
               title: 'Ekip yok',
               message: 'İlk ekibi oluşturmak için + butonuna dokunun.',
             )
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(
-                  HgSpace.lg, HgSpace.xs, HgSpace.lg, 120),
-              itemCount: _teams.length,
-              itemBuilder: (_, i) => Padding(
-                padding: const EdgeInsets.only(bottom: HgSpace.sm),
-                child: _TeamCard(
-                  team: _teams[i],
-                  onTap: () => _openDetail(_teams[i]),
+          : RefreshIndicator(
+              onRefresh: _loadTeams,
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(
+                    HgSpace.lg, HgSpace.xs, HgSpace.lg, 120),
+                itemCount: _teams.length,
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.only(bottom: HgSpace.sm),
+                  child: _TeamCard(
+                    team: _teams[i],
+                    onTap: () => _openDetail(_teams[i]),
+                  ),
                 ),
               ),
             ),

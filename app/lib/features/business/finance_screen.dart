@@ -1,34 +1,11 @@
-// Hanagram — Finans ekranı (bağımsız, Supabase bağımlılığı yok)
+// Hanagram — Finans ekranı
 //
-// Gelir/gider takibi, özet kartları, ekleme formu.
-// Arkadram'ın finans.tsx ekranının Flutter karşılığı.
+// Muhasebe (accounting_screen.dart) ile AYNI accounting_entries tablosunu
+// kullanan hızlı gelir/gider ekleme ekranı — burası kısayol, veri tek yerde.
 import 'package:flutter/material.dart';
 import 'package:hanagram_design/design.dart';
+import '../../core/accounting_service.dart';
 import '../../core/utils.dart';
-
-/// İşlem türü.
-enum _TxType { income, expense }
-
-/// Tek bir gelir/gider kalemi.
-class _FinanceEntry {
-  const _FinanceEntry({
-    required this.id,
-    required this.type,
-    required this.title,
-    required this.amount,
-    required this.category,
-    required this.date,
-  });
-
-  final String id;
-  final _TxType type;
-  final String title;
-  final int amount; // kuruş
-  final String category;
-  final DateTime date;
-
-  bool get isIncome => type == _TxType.income;
-}
 
 class FinanceScreen extends StatefulWidget {
   const FinanceScreen({super.key});
@@ -38,7 +15,7 @@ class FinanceScreen extends StatefulWidget {
 }
 
 class _FinanceScreenState extends State<FinanceScreen> {
-  List<_FinanceEntry> _entries = [];
+  List<AccountingEntry> _entries = const [];
   bool _isLoading = true;
 
   @override
@@ -47,47 +24,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
     _loadData();
   }
 
-  void _loadData() {
-    // Örnek veri — Supabase bağlanınca oradan çekilecek
-    final now = DateTime.now();
-    _entries = [
-      _FinanceEntry(
-        id: 'f1', type: _TxType.income, title: 'Makyaj Kampanyası — Elif',
-        amount: 150000, category: 'Güzellik',
-        date: now.subtract(const Duration(hours: 3)),
-      ),
-      _FinanceEntry(
-        id: 'f2', type: _TxType.income, title: 'Çekim Paketi — Studio Nova',
-        amount: 320000, category: 'Çekim',
-        date: now.subtract(const Duration(days: 1)),
-      ),
-      _FinanceEntry(
-        id: 'f3', type: _TxType.expense, title: 'Kira',
-        amount: 120000, category: 'Sabit Gider',
-        date: now.subtract(const Duration(days: 3)),
-      ),
-      _FinanceEntry(
-        id: 'f4', type: _TxType.income, title: 'Kaş Laminasyonu — Zeynep',
-        amount: 80000, category: 'Güzellik',
-        date: now.subtract(const Duration(days: 4)),
-      ),
-      _FinanceEntry(
-        id: 'f5', type: _TxType.expense, title: 'Malzeme Alımı',
-        amount: 45000, category: 'Malzeme',
-        date: now.subtract(const Duration(days: 5)),
-      ),
-      _FinanceEntry(
-        id: 'f6', type: _TxType.income, title: 'Saç Bakım — Cenk',
-        amount: 250000, category: 'Saç',
-        date: now.subtract(const Duration(days: 6)),
-      ),
-      _FinanceEntry(
-        id: 'f7', type: _TxType.expense, title: 'Personel Maaşı',
-        amount: 155000, category: 'Personel',
-        date: now.subtract(const Duration(days: 7)),
-      ),
-    ];
-    setState(() => _isLoading = false);
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    final entries = await AccountingService.getEntries(limit: 100);
+    if (mounted) {
+      setState(() {
+        _entries = entries;
+        _isLoading = false;
+      });
+    }
   }
 
   int get _totalIncome => _entries
@@ -106,16 +51,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _FinanceAddSheet(
-        onAdded: (entry) {
-          setState(() => _entries.insert(0, entry));
-        },
-      ),
-    );
+      builder: (_) => const _FinanceAddSheet(),
+    ).then((added) {
+      if (added == true) _loadData();
+    });
   }
 
-  void _removeEntry(String id) {
-    setState(() => _entries.removeWhere((e) => e.id == id));
+  Future<void> _removeEntry(String id) async {
+    setState(() => _entries = _entries.where((e) => e.id != id).toList());
+    await AccountingService.deleteEntry(id);
   }
 
   @override
@@ -212,7 +156,7 @@ class _SummaryCard extends StatelessWidget {
 
 class _EntryTile extends StatelessWidget {
   const _EntryTile({required this.entry, required this.onDelete});
-  final _FinanceEntry entry;
+  final AccountingEntry entry;
   final VoidCallback onDelete;
 
   @override
@@ -269,18 +213,18 @@ class _EntryTile extends StatelessWidget {
 // ─── Ekleme formu ───
 
 class _FinanceAddSheet extends StatefulWidget {
-  const _FinanceAddSheet({required this.onAdded});
-  final ValueChanged<_FinanceEntry> onAdded;
+  const _FinanceAddSheet();
 
   @override
   State<_FinanceAddSheet> createState() => _FinanceAddSheetState();
 }
 
 class _FinanceAddSheetState extends State<_FinanceAddSheet> {
-  _TxType _type = _TxType.income;
+  TransactionType _type = TransactionType.income;
   final _titleCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   String _category = 'Genel';
+  bool _isSaving = false;
 
   static const _categories = ['Genel', 'Güzellik', 'Çekim', 'Saç', 'Malzeme', 'Sabit Gider', 'Personel', 'Diğer'];
 
@@ -291,20 +235,28 @@ class _FinanceAddSheetState extends State<_FinanceAddSheet> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (_titleCtrl.text.isEmpty || _amountCtrl.text.isEmpty) return;
     final amount = int.tryParse(_amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
     if (amount <= 0) return;
 
-    widget.onAdded(_FinanceEntry(
-      id: 'f_${DateTime.now().millisecondsSinceEpoch}',
+    setState(() => _isSaving = true);
+    final id = await AccountingService.addEntry(
       type: _type,
       title: _titleCtrl.text.trim(),
       amount: amount * 100, // TL → kuruş
-      category: _category,
       date: DateTime.now(),
-    ));
-    Navigator.pop(context, true);
+      category: _category,
+    );
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    if (id != null) {
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kaydedilemedi, tekrar deneyin.')),
+      );
+    }
   }
 
   @override
@@ -335,31 +287,31 @@ class _FinanceAddSheetState extends State<_FinanceAddSheet> {
           Row(
             children: [
               Expanded(child: GestureDetector(
-                onTap: () => setState(() => _type = _TxType.income),
+                onTap: () => setState(() => _type = TransactionType.income),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: HgSpace.md),
                   decoration: BoxDecoration(
-                    color: _type == _TxType.income ? c.success.withValues(alpha: 0.15) : c.surfaceAlt,
+                    color: _type == TransactionType.income ? c.success.withValues(alpha: 0.15) : c.surfaceAlt,
                     borderRadius: BorderRadius.circular(HgRadius.md),
-                    border: Border.all(color: _type == _TxType.income ? c.success : c.border),
+                    border: Border.all(color: _type == TransactionType.income ? c.success : c.border),
                   ),
                   child: Center(child: Text('Gelir', style: HgText.bodyStrong.copyWith(
-                    color: _type == _TxType.income ? c.success : c.textMuted, shadows: null,
+                    color: _type == TransactionType.income ? c.success : c.textMuted, shadows: null,
                   ))),
                 ),
               )),
               const SizedBox(width: HgSpace.md),
               Expanded(child: GestureDetector(
-                onTap: () => setState(() => _type = _TxType.expense),
+                onTap: () => setState(() => _type = TransactionType.expense),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: HgSpace.md),
                   decoration: BoxDecoration(
-                    color: _type == _TxType.expense ? c.coral.withValues(alpha: 0.15) : c.surfaceAlt,
+                    color: _type == TransactionType.expense ? c.coral.withValues(alpha: 0.15) : c.surfaceAlt,
                     borderRadius: BorderRadius.circular(HgRadius.md),
-                    border: Border.all(color: _type == _TxType.expense ? c.coral : c.border),
+                    border: Border.all(color: _type == TransactionType.expense ? c.coral : c.border),
                   ),
                   child: Center(child: Text('Gider', style: HgText.bodyStrong.copyWith(
-                    color: _type == _TxType.expense ? c.coral : c.textMuted, shadows: null,
+                    color: _type == TransactionType.expense ? c.coral : c.textMuted, shadows: null,
                   ))),
                 ),
               )),
@@ -395,7 +347,11 @@ class _FinanceAddSheetState extends State<_FinanceAddSheet> {
           // Kaydet
           SizedBox(
             width: double.infinity,
-            child: BrandButton(label: 'Kaydet', onPressed: _submit),
+            child: BrandButton(
+              label: 'Kaydet',
+              busy: _isSaving,
+              onPressed: _isSaving ? null : _submit,
+            ),
           ),
         ],
       ),

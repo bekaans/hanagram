@@ -5,8 +5,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/app_state.dart';
+import '../../core/post_service.dart';
+import '../../core/utils.dart';
+import '../../core/verification_service.dart';
 import 'package:hanagram_design/design.dart';
 import '../connections/connections_screen.dart';
+import 'ad_screen.dart';
 import 'appointment_screen.dart';
 import 'calendar_view.dart';
 import 'customer_screen.dart';
@@ -22,8 +26,41 @@ import 'team_screen.dart';
 import 'packages_screen.dart';
 import 'referral_screen.dart';
 
-class BusinessScreen extends StatelessWidget {
+class BusinessScreen extends StatefulWidget {
   const BusinessScreen({super.key});
+
+  @override
+  State<BusinessScreen> createState() => _BusinessScreenState();
+}
+
+class _BusinessScreenState extends State<BusinessScreen> {
+  int _followerCount = 0;
+  int _engagement = 0;
+  bool _loadingStats = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    final app = AppScope.of(context);
+    final authId = app.session?.userId;
+    if (authId == null) return;
+
+    final results = await Future.wait([
+      VerificationService.getFollowerCount(authId),
+      PostService.getMyEngagementTotal(),
+    ]);
+    if (mounted) {
+      setState(() {
+        _followerCount = results[0];
+        _engagement = results[1];
+        _loadingStats = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,9 +85,9 @@ class BusinessScreen extends StatelessWidget {
             children: [
               Expanded(
                 child: _Stat(
-                  label: 'Görüntülenme',
-                  value: '12.4K',
-                  icon: CupertinoIcons.eye,
+                  label: 'Takipçi',
+                  value: _loadingStats ? '—' : fmtCount(_followerCount),
+                  icon: CupertinoIcons.person_2,
                   color: c.violet,
                 ),
               ),
@@ -58,7 +95,7 @@ class BusinessScreen extends StatelessWidget {
               Expanded(
                 child: _Stat(
                   label: 'Etkileşim',
-                  value: '8.7K',
+                  value: _loadingStats ? '—' : fmtCount(_engagement),
                   icon: CupertinoIcons.heart,
                   color: c.blue,
                 ),
@@ -201,6 +238,15 @@ class BusinessScreen extends StatelessWidget {
             ready: true,
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const ReviewsScreen()),
+            ),
+          ),
+          _Tool(
+            icon: CupertinoIcons.speaker_2,
+            title: 'Reklamlar',
+            desc: 'Kampanya oluştur, bütçe ve hedef konu ayarla',
+            ready: true,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AdScreen()),
             ),
           ),
           const SizedBox(height: HgSpace.xl),

@@ -1,9 +1,10 @@
-// Hanagram — Portfolyo ekranı (bağımsız, Supabase bağımlılığı yok)
+// Hanagram — Portfolyo ekranı
 //
 // İşletmenin fotoğraf/video portföyünü ızgara biçiminde gösterir.
-// Arkadram'ın portfoy.tsx ekranının Flutter karşılığı.
+// Veri Supabase posts tablosundan (is_portfolio=true) gelir.
 import 'package:flutter/material.dart';
 import 'package:hanagram_design/design.dart';
+import '../../core/post_service.dart';
 
 /// Portföy medya kalemi.
 class _PortfolioItem {
@@ -11,19 +12,44 @@ class _PortfolioItem {
     required this.id,
     required this.title,
     required this.type,
+    this.mediaUrl = '',
     this.likes = 0,
     this.comments = 0,
     this.shares = 0,
+    this.likedByMe = false,
   });
 
   final String id;
   final String title;
   final String type; // 'photo' veya 'video'
+  final String mediaUrl;
   final int likes;
   final int comments;
   final int shares;
+  final bool likedByMe;
 
   bool get isVideo => type == 'video';
+
+  factory _PortfolioItem.fromJson(Map<String, dynamic> j) => _PortfolioItem(
+        id: j['id'] as String? ?? '',
+        title: j['caption'] as String? ?? '',
+        type: j['mediaType'] as String? ?? 'photo',
+        mediaUrl: j['mediaUrl'] as String? ?? '',
+        likes: (j['likes'] as num?)?.toInt() ?? 0,
+        comments: (j['comments'] as num?)?.toInt() ?? 0,
+        likedByMe: j['likedByMe'] as bool? ?? false,
+      );
+
+  _PortfolioItem copyWith({int? likes, bool? likedByMe}) => _PortfolioItem(
+        id: id,
+        title: title,
+        type: type,
+        mediaUrl: mediaUrl,
+        likes: likes ?? this.likes,
+        comments: comments,
+        shares: shares,
+        likedByMe: likedByMe ?? this.likedByMe,
+      );
 }
 
 class PortfolioScreen extends StatefulWidget {
@@ -34,22 +60,35 @@ class PortfolioScreen extends StatefulWidget {
 }
 
 class _PortfolioScreenState extends State<PortfolioScreen> {
-  late List<_PortfolioItem> _items;
+  List<_PortfolioItem> _items = const [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _items = _samplePortfolio();
+    _loadPortfolio();
   }
 
-  void _toggleLike(int index) {
+  Future<void> _loadPortfolio() async {
+    setState(() => _isLoading = true);
+    final result = await PostService.getPortfolio();
+    _items = result.map((e) => _PortfolioItem.fromJson(e)).toList();
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _toggleLike(int index) async {
     final item = _items[index];
+    final wasLiked = item.likedByMe;
     setState(() {
-      _items[index] = _PortfolioItem(
-        id: item.id, title: item.title, type: item.type,
-        likes: item.likes + 1, comments: item.comments, shares: item.shares,
+      _items[index] = item.copyWith(
+        likes: wasLiked ? item.likes - 1 : item.likes + 1,
+        likedByMe: !wasLiked,
       );
     });
+    final ok = await PostService.toggleLike(item.id);
+    if (ok == null && mounted) {
+      setState(() => _items[index] = item);
+    }
   }
 
   @override
@@ -65,7 +104,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       ),
       body: SafeArea(
         bottom: false,
-        child: _items.isEmpty
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _items.isEmpty
             ? EmptyState(
                 icon: Icons.photo_library_outlined,
                 title: 'Portfolyo boş',
@@ -111,10 +152,11 @@ class _PortfolioCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Medya placeholder
+          // Medya (gerçek görsel varsa göster, yoksa gradient placeholder)
           Expanded(
             child: Container(
               width: double.infinity,
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
@@ -127,14 +169,25 @@ class _PortfolioCard extends StatelessWidget {
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(HgRadius.md)),
               ),
               child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  Center(
-                    child: Icon(
-                      item.isVideo ? Icons.videocam_outlined : Icons.image_outlined,
-                      size: 40,
-                      color: c.textMuted,
+                  if (item.mediaUrl.isNotEmpty && !item.isVideo)
+                    Image.network(
+                      item.mediaUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Center(
+                        child: Icon(Icons.image_outlined,
+                            size: 40, color: c.textMuted),
+                      ),
+                    )
+                  else
+                    Center(
+                      child: Icon(
+                        item.isVideo ? Icons.videocam_outlined : Icons.image_outlined,
+                        size: 40,
+                        color: c.textMuted,
+                      ),
                     ),
-                  ),
                   if (item.isVideo)
                     Positioned(
                       top: HgSpace.sm,
@@ -195,19 +248,4 @@ class _PortfolioCard extends StatelessWidget {
       ),
     );
   }
-}
-
-// ─── Örnek portföy verisi ───
-
-List<_PortfolioItem> _samplePortfolio() {
-  return [
-    const _PortfolioItem(id: 'pf1', title: 'Stüdyo çekimi — Elif', type: 'photo', likes: 45, comments: 8, shares: 3),
-    const _PortfolioItem(id: 'pf2', title: 'Reels kurgu — makyaj', type: 'video', likes: 128, comments: 22, shares: 15),
-    const _PortfolioItem(id: 'pf3', title: 'Dr. Ahmet Kaya reklam', type: 'photo', likes: 67, comments: 5, shares: 2),
-    const _PortfolioItem(id: 'pf4', title: 'Saç bakım önce-sonra', type: 'photo', likes: 89, comments: 12, shares: 7),
-    const _PortfolioItem(id: 'pf5', title: 'Tanıtım videosu — Nova', type: 'video', likes: 203, comments: 34, shares: 28),
-    const _PortfolioItem(id: 'pf6', title: 'Kampanya afişi — yaz', type: 'photo', likes: 56, comments: 3, shares: 1),
-    const _PortfolioItem(id: 'pf7', title: 'Kaş laminasyonu süreci', type: 'video', likes: 94, comments: 11, shares: 6),
-    const _PortfolioItem(id: 'pf8', title: 'Mekan tanıtımı', type: 'photo', likes: 112, comments: 15, shares: 9),
-  ];
 }

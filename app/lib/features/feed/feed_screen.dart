@@ -1,7 +1,8 @@
 // Hanagram — akış
 //
-// Sıralamayı bu ekran YAPMAZ. Liste C++ çekirdeğinden sıralı gelir; ekranın işi
-// göstermek ve kullanıcı davranışını sinyal olarak geri bildirmektir.
+// Gönderiler Supabase posts tablosundan gelir, tarihe göre sıralı (bkz.
+// core/feed_service.dart). Ekranın işi göstermek ve kullanıcı davranışını
+// sinyal olarak geri bildirmektir.
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
@@ -11,52 +12,6 @@ import '../../core/app_state.dart';
 import 'package:hanagram_design/design.dart';
 import '../../shell/compose_sheet.dart';
 import 'feed_widgets.dart';
-
-// ─── Örnek gönderi verisi ───
-final _sampleFeed = [
-  FeedItem(
-    id: 's1', authorName: 'Elif Yılmaz', authorHandle: 'elifyilmaz',
-    caption: 'Bugünkü makyaj çalışmam 💄 Doğal tonlar her zaman kazanır!',
-    topics: const ['guzellik', 'makyaj'], likes: 342, commentCount: 28,
-    createdAt: DateTime.now().subtract(const Duration(hours: 2)).millisecondsSinceEpoch,
-    sponsored: false, why: const {},
-  ),
-  FeedItem(
-    id: 's2', authorName: 'Dr. Ahmet Kaya', authorHandle: 'dr.ahmetkaya',
-    caption: 'Cilt bakımı rutininizde mutlaka bulunması gereken 3 ürün: SPF, retinol ve hyaluronik asit.',
-    topics: const ['medikal', 'cilt'], likes: 891, commentCount: 67,
-    createdAt: DateTime.now().subtract(const Duration(hours: 5)).millisecondsSinceEpoch,
-    sponsored: false, why: const {},
-  ),
-  FeedItem(
-    id: 's3', authorName: 'Studio Nova', authorHandle: 'studionova',
-    caption: 'Yeni çekim için mekan arıyoruz 📸 İstanbul Anadolu Yakası önerilerinizi bekliyoruz.',
-    topics: const ['icerik', 'fotograf'], likes: 156, commentCount: 43,
-    createdAt: DateTime.now().subtract(const Duration(hours: 8)).millisecondsSinceEpoch,
-    sponsored: false, why: const {'exploration': true},
-  ),
-  FeedItem(
-    id: 's4', authorName: 'Hanagram', authorHandle: 'hanagram',
-    caption: '🎯 Hanagram\'a hoş geldin! İlk haftanda sana özel içerikler hazırlanıyor.',
-    topics: const ['hanagram'], likes: 2048, commentCount: 12,
-    createdAt: DateTime.now().subtract(const Duration(hours: 12)).millisecondsSinceEpoch,
-    sponsored: true, why: const {},
-  ),
-  FeedItem(
-    id: 's5', authorName: 'Zeynep Arslan', authorHandle: 'zeyneparslan',
-    caption: 'Bugün çok güzel bir kaş laminasyonu yaptım! Detaylı video çok yakında 🎬',
-    topics: const ['guzellik', 'icerik'], likes: 527, commentCount: 34,
-    createdAt: DateTime.now().subtract(const Duration(days: 1)).millisecondsSinceEpoch,
-    sponsored: false, why: const {},
-  ),
-  FeedItem(
-    id: 's6', authorName: 'Cenk Demir', authorHandle: 'cenkdemir',
-    caption: 'Fitness antrenman programı paylaşımı: 12 haftalık kickboks planı 🥊',
-    topics: const ['spor', 'egitim'], likes: 1243, commentCount: 89,
-    createdAt: DateTime.now().subtract(const Duration(days: 1, hours: 6)).millisecondsSinceEpoch,
-    sponsored: false, why: const {'exploration': true},
-  ),
-];
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -72,7 +27,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Widget build(BuildContext context) {
     final c = HgTheme.of(context);
     final app = AppScope.of(context);
-    final items = app.feed.isNotEmpty ? app.feed : _sampleFeed;
+    final items = app.feed;
 
     return Column(
       children: [
@@ -84,19 +39,35 @@ class _FeedScreenState extends State<FeedScreen> {
           },
         ),
         Expanded(
-          child: app.busy && app.feed.isEmpty && _mode == 'foryou'
+          child: app.busy && items.isEmpty
               ? Center(child: CupertinoActivityIndicator(color: c.violet))
               : RefreshIndicator(
                   color: c.violet,
                   onRefresh: () => app.loadFeed(mode: _mode),
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                        HgSpace.lg, HgSpace.sm, HgSpace.lg, 96),
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(height: HgSpace.lg),
-                    itemBuilder: (_, i) => PostCard(item: items[i]),
-                  ),
+                  child: items.isEmpty
+                      ? ListView(
+                          padding: const EdgeInsets.fromLTRB(
+                              HgSpace.lg, HgSpace.xxl, HgSpace.lg, 96),
+                          children: [
+                            EmptyState(
+                              icon: CupertinoIcons.square_stack_3d_up_slash,
+                              title: _mode == 'following'
+                                  ? 'Takip ettiğin kimse paylaşım yapmamış'
+                                  : 'Henüz gönderi yok',
+                              message: _mode == 'following'
+                                  ? 'Birilerini takip ettiğinde gönderileri burada görünür.'
+                                  : 'İlk gönderiyi paylaşmak için üstteki "Oluştur"a dokun.',
+                            ),
+                          ],
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(
+                              HgSpace.lg, HgSpace.sm, HgSpace.lg, 96),
+                          itemCount: items.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: HgSpace.lg),
+                          itemBuilder: (_, i) => PostCard(item: items[i]),
+                        ),
                 ),
         ),
       ],

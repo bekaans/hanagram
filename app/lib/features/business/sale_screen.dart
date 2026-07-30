@@ -1,8 +1,10 @@
 // Hanagram — satış listesi ekranı
 //
 // İşletmenin satış geçmişini gösterir, yeni satış kaydetme sheet'ini açar.
+// Veri Supabase crm_entries (type='sale') tablosundan gelir.
 import 'package:flutter/material.dart';
 import '../../core/app_state.dart';
+import '../../core/crm_service.dart';
 import 'package:hanagram_design/design.dart';
 import 'sale_item.dart';
 import 'sale_sheet.dart';
@@ -28,23 +30,9 @@ class _SaleScreenState extends State<SaleScreen> {
     setState(() {
       _isLoading = true;
     });
-    try {
-      final app = AppScope.of(context);
-      final bizId = app.session!.userId;
-      final result = app.core.call('sale.list', {
-        'businessId': bizId,
-      });
-      final items = (result['items'] as List?) ?? const [];
-      _sales = items
-          .map((e) =>
-              SaleItem.fromJson((e as Map).cast<String, dynamic>()))
-          .toList();
-    } on Exception catch (_) {
-      // Core yoksa örnek satış verisi göster
-      _sales = _sampleSales();
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    final result = await CrmService.getSales();
+    _sales = result.map((e) => SaleItem.fromJson(e)).toList();
+    if (mounted) setState(() => _isLoading = false);
   }
 
   void _openNewSaleSheet() {
@@ -110,40 +98,4 @@ class _SaleScreenState extends State<SaleScreen> {
       ),
     );
   }
-}
-
-// ─── Örnek satış verisi (core yokken) ───
-
-List<SaleItem> _sampleSales() {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  return [
-    SaleItem(
-      id: 'ss1', businessId: 'demo',
-      customerName: 'Elif Yılmaz',
-      items: [SaleLineItem(productId: 'p1', name: 'Makyaj Kampanyası', quantity: 1, unitPriceKurus: 150000)],
-      totalKurus: 150000, paymentMethod: 'cash',
-      createdAt: now - 10800000,
-    ),
-    SaleItem(
-      id: 'ss2', businessId: 'demo',
-      customerName: 'Studio Nova',
-      items: [SaleLineItem(productId: 'p2', name: 'Profesyonel Çekim', quantity: 1, unitPriceKurus: 320000)],
-      totalKurus: 320000, paymentMethod: 'card',
-      createdAt: now - 86400000,
-    ),
-    SaleItem(
-      id: 'ss3', businessId: 'demo',
-      customerName: 'Zeynep Arslan',
-      items: [SaleLineItem(productId: 'p3', name: 'Kaş Laminasyonu', quantity: 2, unitPriceKurus: 80000)],
-      totalKurus: 160000, paymentMethod: 'transfer',
-      createdAt: now - 172800000,
-    ),
-    SaleItem(
-      id: 'ss4', businessId: 'demo',
-      customerName: 'Cenk Demir',
-      items: [SaleLineItem(productId: 'p4', name: 'Saç Bakım Paketi', quantity: 1, unitPriceKurus: 250000)],
-      totalKurus: 250000, paymentMethod: 'card',
-      createdAt: now - 259200000,
-    ),
-  ];
 }

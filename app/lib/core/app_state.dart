@@ -1,14 +1,13 @@
 // Hanagram — uygulama durumu
 //
 // Yalnızca SUNUM durumu tutar (hangi sekme açık, yükleniyor mu, elde hangi liste var).
-// İş kuralı servislerde: FeedService, InviteService, ProfileService.
+// İş kuralı servislerde: FeedService, ProfileService.
 import 'web_compat.dart';
 
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:hanagram_design/design.dart';
 import 'feed_service.dart';
-import 'invite_service.dart';
 import 'notification_service.dart';
 import 'referral_service.dart';
 import 'supabase_service.dart';
@@ -58,6 +57,7 @@ class FeedItem {
     required this.createdAt,
     required this.sponsored,
     required this.why,
+    this.likedByMe = false,
   });
 
   final String id;
@@ -70,6 +70,7 @@ class FeedItem {
   final int createdAt;
   final bool sponsored;
   final Map<String, dynamic> why;
+  final bool likedByMe;
 
   bool get isExploration => why['exploration'] == true;
 
@@ -87,12 +88,11 @@ class FeedItem {
       );
 }
 
-enum CoreStatus { starting, ready, failed }
+enum CoreStatus { starting, ready }
 
 class AppState extends ChangeNotifier {
   HanagramCore? _core;
   CoreStatus status = CoreStatus.starting;
-  String? failureDetail;
 
   Session? session;
   bool busy = false;
@@ -102,8 +102,8 @@ class AppState extends ChangeNotifier {
   final ValueNotifier<int> tabController = ValueNotifier(0);
 
   // Servisler — boot() sonrasında geçerli.
+  // feedService Supabase tabanlı, çekirdeksiz de çalışır.
   late final FeedService feedService;
-  late final InviteService inviteService;
 
   // Geriye uyumluluk: doğrudan erişim (ekranlar değiştirmeden çalışmaya devam eder).
   List<FeedItem> get feed => feedService.feed;
@@ -111,7 +111,6 @@ class AppState extends ChangeNotifier {
   List<FeedItem> get discover => feedService.discover;
   set discover(List<FeedItem> v) => feedService.discover = v;
   double get profileConfidence => feedService.profileConfidence;
-  List<String> get myInviteCodes => inviteService.myInviteCodes;
 
   HanagramCore get core {
     final c = _core;
@@ -122,6 +121,9 @@ class AppState extends ChangeNotifier {
   String get coreVersion => _core?.version ?? '—';
 
   Future<void> boot() async {
+    // feedService artık Supabase üzerinden çalışır — çekirdek şart değil.
+    feedService = FeedService(() => notifyListeners());
+
     try {
       String dir = '';
       try {
@@ -131,21 +133,17 @@ class AppState extends ChangeNotifier {
         dir = '';
       }
       _core = HanagramCore.start(dir);
-
-      // Servisleri oluştur.
-      feedService = FeedService(_core!, () => notifyListeners());
-      inviteService = InviteService(_core!);
-
-      inviteService.seedFirstRunIfNeeded();
-
-      // Supabase oturumunu geri yükle
-      await _restoreSession();
-
-      status = CoreStatus.ready;
-    } catch (e) {
-      status = CoreStatus.failed;
-      failureDetail = e.toString();
+    } catch (_) {
+      // Çekirdek yüklenemedi (ör. Android/iOS/Windows'ta henüz derlenmedi).
+      // Auth/mesaj/randevu/CRM/görev/ekip/akış Supabase üzerinden çalıştığı
+      // için bu artık uygulamayı BLOKLAMAZ.
+      _core = null;
     }
+
+    // Supabase oturumunu geri yükle (çekirdek durumundan bağımsız).
+    await _restoreSession();
+
+    status = CoreStatus.ready;
     notifyListeners();
   }
 
@@ -175,47 +173,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ─── Geriye uyumluluk API'si — ekranlar bu metotları çağırıyor ───
-
-  ({bool valid, String code, String invitedBy}) checkInvite(String raw) =>
-      inviteService.checkInvite(raw);
-
-  String? redeem(String code, String name, String accountType) {
-    final result = inviteService.redeem(code, name, accountType);
-    if (result == null) return 'Geçersiz davet kodu';
-
-    session = Session.fromJson((result['user'] as Map).cast<String, dynamic>());
-    membership = (result['membership'] as Map).cast<String, dynamic>();
-    notifyListeners();
-
-    // Supabase'de de profil oluştur (arka planda)
-    _syncToSupabase(code, name, accountType);
-
-    return null;
-  }
-
-  /// Yerel kayıt sonrası Supabase'i senkronize et.
-  Future<void> _syncToSupabase(String code, String name, String accountType) async {
-    try {
-      final authUser = SupabaseService.user;
-      if (authUser == null) return;
-
-      await ReferralService.createProfile(
-        authId: authUser.id,
-        username: name.toLowerCase().replaceAll(' ', ''),
-        fullName: name,
-        accountType: accountType,
-        referralCode: code,
-      );
-
-      // Referans kodu v2: sınırsız kullanım, redeemCode kaldırıldı
-    } catch (_) {
-      // Senkronizasyon başarısız — yerel veriler korunur
-    }
-  }
-
-  Map<String, dynamic>? membership;
-
   /// Dışarıdan durum değişikliği bildir (ör: kayıt sonrası session güncelleme).
   void updateSession(Session s) {
     session = s;
@@ -223,33 +180,29 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> loadFeed({String mode = 'foryou'}) async {
-    final s = session;
-    if (s == null) return;
+    if (session == null) return;
     busy = true;
     notifyListeners();
-    feedService.loadFeed(s.userId, mode: mode);
+    await feedService.loadFeed(mode: mode);
     busy = false;
     notifyListeners();
   }
 
   Future<void> loadDiscover({String query = ''}) async {
-    final s = session;
-    if (s == null) return;
-    feedService.loadDiscover(s.userId, query: query);
+    if (session == null) return;
+    await feedService.loadDiscover(query: query);
     notifyListeners();
   }
 
   void signal(String itemId, String kind, {int dwellMs = 0}) {
-    final s = session;
-    if (s == null) return;
-    feedService.signal(s.userId, itemId, kind, dwellMs: dwellMs);
+    if (session == null) return;
+    feedService.signal(itemId, kind, dwellMs: dwellMs);
   }
 
-  void createPost(String caption, List<String> topics) {
-    final s = session;
-    if (s == null) return;
-    feedService.createPost(s.userId, caption, topics);
-    loadFeed();
+  Future<void> createPost(String caption, List<String> topics) async {
+    if (session == null) return;
+    await feedService.createPost(caption, topics);
+    await loadFeed();
   }
 
   void updateProfile({String? name, String? bio, String? sector, String? accountType}) {

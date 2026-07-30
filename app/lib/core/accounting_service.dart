@@ -105,7 +105,7 @@ class AccountingService {
     String? crmEntryId,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return null;
 
       final result = await _db.from('accounting_entries').insert({
@@ -155,7 +155,7 @@ class AccountingService {
     int limit = 200,
   }) async {
     try {
-      final userId = SupabaseService.user?.id;
+      final userId = await SupabaseService.myDbId();
       if (userId == null) return [];
 
       var query = _db
@@ -193,7 +193,7 @@ class AccountingService {
   /// Belirli bir ayın özet raporunu oluştur.
   static Future<MonthlyReport> getMonthlyReport(
       int year, int month) async {
-    final userId = SupabaseService.user?.id;
+    final userId = await SupabaseService.myDbId();
     if (userId == null) {
       return _emptyReport(year, month);
     }
@@ -301,7 +301,7 @@ class AccountingService {
     DateTime? from,
     DateTime? to,
   }) async {
-    final userId = SupabaseService.user?.id;
+    final userId = await SupabaseService.myDbId();
     if (userId == null) return {};
 
     var query = _db

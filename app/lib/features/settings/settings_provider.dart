@@ -1,9 +1,14 @@
 // Hanagram — ayarlar durum yöneticisi
 //
 // Tema tercihi, bildirim ayarları ve kişiselleştirme seçeneklerini tutar.
-// C++ çekirdeğe bağımlı değil — bağımsız bir yerel depo kullanır.
+// C++ çekirdeğe bağımlı değil. Çoğu tercih sadece yerelde saklanır, ama
+// "Çevrimiçi görünürlük" ve "Okundu bilgisi" BAŞKA kullanıcıların istemcisi
+// tarafından okunması gerektiği için users tablosuna da yazılır.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/supabase_service.dart';
 
 class SettingsProvider extends ChangeNotifier {
   SharedPreferences? _prefs;
@@ -72,18 +77,47 @@ class SettingsProvider extends ChangeNotifier {
     _showOnlineStatus = value;
     await _prefs?.setBool('onlineStatus', value);
     notifyListeners();
+    await _syncPrivacyField('show_online_status', value);
   }
 
   Future<void> toggleReadReceipts(bool value) async {
     _showReadReceipts = value;
     await _prefs?.setBool('readReceipts', value);
     notifyListeners();
+    await _syncPrivacyField('show_read_receipts', value);
   }
 
   Future<void> toggleHapticFeedback(bool value) async {
     _hapticFeedback = value;
     await _prefs?.setBool('haptic', value);
     notifyListeners();
+  }
+
+  /// Gizlilik tercihini users tablosuna yaz — başkaları bunu okuyabilsin diye.
+  Future<void> _syncPrivacyField(String column, bool value) async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return;
+      await SupabaseService.client.from('users').update({column: value}).eq('id', userId);
+    } catch (_) {
+      // Senkronizasyon başarısız olursa yerel tercih yine de geçerli kalır.
+    }
+  }
+
+  /// Dokunsal geri bildirim — açıksa hafif titreşim verir, ayarlarda kapatılabilir.
+  void hapticTap() {
+    if (_hapticFeedback) HapticFeedback.lightImpact();
+  }
+
+  /// Şu an aktif olduğumu bildir (basit "son görülme" — gerçek zamanlı presence değil).
+  Future<void> pingOnline() async {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) return;
+      await SupabaseService.client.from('users').update({
+        'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', userId);
+    } catch (_) {}
   }
 
   Brightness get effectiveBrightness {
