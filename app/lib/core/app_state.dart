@@ -179,6 +179,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Çıkış yapıldığında session'ı temizle ve dinleyicilere bildir — bu
+  /// olmadan main.dart'taki InviteGate/AppShell geçişi tetiklenmez.
+  void logout() {
+    session = null;
+    notifyListeners();
+  }
+
   Future<void> loadFeed({String mode = 'foryou'}) async {
     if (session == null) return;
     busy = true;

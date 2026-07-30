@@ -28,8 +28,7 @@ class AppointmentReminder {
       final appointments = await _db
           .from('appointments')
           .select('''
-            id, title, date, start_time, status,
-            attendee:users!appointments_attendee_id_fkey(id, auth_id, full_name),
+            id, title, date, start_time, status, attendee_id,
             creator:users!appointments_created_by_fkey(full_name)
           ''')
           .eq('date', dateStr)
@@ -39,27 +38,36 @@ class AppointmentReminder {
       int sentCount = 0;
 
       for (final appt in appointments) {
-        final attendee = appt['attendee'] as Map<String, dynamic>?;
         final creator = appt['creator'] as Map<String, dynamic>?;
-        final attendeeAuthId = attendee?['auth_id'] as String?;
+        // NotificationService.sendToUser OneSignal'in "supabase_id" etiketiyle
+        // eşleşmesi için users.id (dbId) bekliyor — auth_id DEĞİL.
+        final attendeeDbId = appt['attendee_id'] as String?;
         final creatorName = creator?['full_name'] as String? ?? 'İşletme';
         final title = appt['title'] as String? ?? 'Randevu';
         final startTime = appt['start_time'] as String? ?? '';
         final apptId = appt['id'] as String?;
 
-        if (attendeeAuthId == null || apptId == null) continue;
+        if (attendeeDbId == null || apptId == null) continue;
 
+        final body =
+            '$creatorName ile "$title" randevunuz yarın saat $startTime. Onaylayın veya iptal edin.';
         // Katılımcıya hatırlatıcı bildirim gönder
         final success = await NotificationService.sendToUser(
-          targetUserId: attendeeAuthId,
+          targetUserId: attendeeDbId,
           title: 'Randevu Hatırlatması',
-          body:
-              '$creatorName ile "$title" randevunuz yarın saat $startTime. Onaylayın veya iptal edin.',
+          body: body,
           data: {
             'appointment_id': apptId,
             'type': 'appointment_reminder',
             'action_required': true,
           },
+        );
+        await NotificationService.record(
+          targetUserId: attendeeDbId,
+          type: 'appointment',
+          title: 'Randevu Hatırlatması',
+          body: body,
+          data: {'appointment_id': apptId},
         );
 
         if (success) sentCount++;
@@ -96,34 +104,33 @@ class AppointmentReminder {
         'status': 'confirmed',
       }).eq('id', appointmentId);
 
-      // Oluşturucuya bildirim gönder
+      // Oluşturucuya bildirim gönder (createdBy zaten dbId — auth_id lookup'a gerek yok)
       if (createdBy != null && createdBy != userId) {
-        final creatorProfile = await _db
+        final attendeeProfile = await _db
             .from('users')
-            .select('auth_id')
-            .eq('id', createdBy)
+            .select('full_name')
+            .eq('id', userId)
             .maybeSingle();
-        final creatorAuthId = creatorProfile?['auth_id'] as String?;
+        final attendeeName =
+            attendeeProfile?['full_name'] as String? ?? 'Birisi';
+        final body = '$attendeeName randevunuzu onayladı: ${appt['title']}';
 
-        if (creatorAuthId != null) {
-          final attendeeProfile = await _db
-              .from('users')
-              .select('full_name')
-              .eq('id', userId)
-              .maybeSingle();
-          final attendeeName =
-              attendeeProfile?['full_name'] as String? ?? 'Birisi';
-
-          await NotificationService.sendToUser(
-            targetUserId: creatorAuthId,
-            title: 'Randevu Onaylandı',
-            body: '$attendeeName randevunuzu onayladı: ${appt['title']}',
-            data: {
-              'appointment_id': appointmentId,
-              'type': 'appointment_confirmed',
-            },
-          );
-        }
+        await NotificationService.sendToUser(
+          targetUserId: createdBy,
+          title: 'Randevu Onaylandı',
+          body: body,
+          data: {
+            'appointment_id': appointmentId,
+            'type': 'appointment_confirmed',
+          },
+        );
+        await NotificationService.record(
+          targetUserId: createdBy,
+          type: 'appointment',
+          title: 'Randevu Onaylandı',
+          body: body,
+          data: {'appointment_id': appointmentId},
+        );
       }
 
       return true;
@@ -140,7 +147,7 @@ class AppointmentReminder {
 
       final appt = await _db
           .from('appointments')
-          .select('id, attendee_id, created_by')
+          .select('id, attendee_id, created_by, title')
           .eq('id', appointmentId)
           .maybeSingle();
 
@@ -153,6 +160,27 @@ class AppointmentReminder {
       await _db.from('appointments').update({
         'status': 'completed',
       }).eq('id', appointmentId);
+
+      final notifyUserId = createdBy == userId ? attendeeId : createdBy;
+      if (notifyUserId != null && notifyUserId != userId) {
+        final body = '"${appt['title']}" randevusu tamamlandı olarak işaretlendi';
+        NotificationService.sendToUser(
+          targetUserId: notifyUserId,
+          title: 'Randevu Tamamlandı',
+          body: body,
+          data: {
+            'appointment_id': appointmentId,
+            'type': 'appointment_completed',
+          },
+        );
+        NotificationService.record(
+          targetUserId: notifyUserId,
+          type: 'appointment',
+          title: 'Randevu Tamamlandı',
+          body: body,
+          data: {'appointment_id': appointmentId},
+        );
+      }
 
       return true;
     } catch (_) {
@@ -184,35 +212,34 @@ class AppointmentReminder {
         'status': 'cancelled',
       }).eq('id', appointmentId);
 
-      // Karşı tarafa bildirim gönder
+      // Karşı tarafa bildirim gönder (notifyUserId zaten dbId)
       final notifyUserId = createdBy == userId ? attendeeId : createdBy;
       if (notifyUserId != null && notifyUserId != userId) {
-        final targetProfile = await _db
+        final cancelerProfile = await _db
             .from('users')
-            .select('auth_id')
-            .eq('id', notifyUserId)
+            .select('full_name')
+            .eq('id', userId)
             .maybeSingle();
-        final targetAuthId = targetProfile?['auth_id'] as String?;
+        final cancelerName =
+            cancelerProfile?['full_name'] as String? ?? 'Birisi';
+        final body = '$cancelerName randevunuzu iptal etti: ${appt['title']}';
 
-        if (targetAuthId != null) {
-          final cancelerProfile = await _db
-              .from('users')
-              .select('full_name')
-              .eq('id', userId)
-              .maybeSingle();
-          final cancelerName =
-              cancelerProfile?['full_name'] as String? ?? 'Birisi';
-
-          await NotificationService.sendToUser(
-            targetUserId: targetAuthId,
-            title: 'Randevu İptal Edildi',
-            body: '$cancelerName randevunuzu iptal etti: ${appt['title']}',
-            data: {
-              'appointment_id': appointmentId,
-              'type': 'appointment_cancelled',
-            },
-          );
-        }
+        await NotificationService.sendToUser(
+          targetUserId: notifyUserId,
+          title: 'Randevu İptal Edildi',
+          body: body,
+          data: {
+            'appointment_id': appointmentId,
+            'type': 'appointment_cancelled',
+          },
+        );
+        await NotificationService.record(
+          targetUserId: notifyUserId,
+          type: 'appointment',
+          title: 'Randevu İptal Edildi',
+          body: body,
+          data: {'appointment_id': appointmentId},
+        );
       }
 
       return true;

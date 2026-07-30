@@ -88,11 +88,13 @@ class InviteTextField extends StatelessWidget {
     required this.controller,
     required this.hint,
     this.onChanged,
+    this.keyboardType,
   });
 
   final TextEditingController controller;
   final String hint;
   final ValueChanged<String>? onChanged;
+  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
@@ -100,6 +102,7 @@ class InviteTextField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
+      keyboardType: keyboardType,
       style: HgText.body.copyWith(color: c.text),
       decoration: InputDecoration(
         hintText: hint,

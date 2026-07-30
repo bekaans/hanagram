@@ -197,16 +197,9 @@ class RegisterForm extends StatelessWidget {
         ),
         const SizedBox(height: HgSpace.xl),
 
-        ContactToggle(
-          isEmail: isEmail,
-          onChanged: onToggleEmailPhone,
-        ),
-        const SizedBox(height: HgSpace.lg),
-
-        if (isEmail)
-          _EmailField(c: c, controller: emailCtrl)
-        else
-          _PhoneField(c: c, controller: phoneCtrl),
+        // Telefon/SMS doğrulaması için Supabase'e henüz bir SMS sağlayıcısı
+        // (Twilio vb.) bağlanmadı — şimdilik sadece e-posta ile kayıt.
+        _EmailField(c: c, controller: emailCtrl),
 
         const SizedBox(height: HgSpace.lg),
 
@@ -291,21 +284,35 @@ class RegisterForm extends StatelessWidget {
         ),
         const SizedBox(height: HgSpace.xl),
 
-        Text('Adın', style: HgText.caption.copyWith(color: c.textMuted)),
-        const SizedBox(height: HgSpace.sm),
-        InviteTextField(
-          controller: nameCtrl,
-          hint: 'Ad Soyad',
-          onChanged: (_) {},
-        ),
-        const SizedBox(height: HgSpace.xl),
-
         Text('Hanagram\'ı nasıl kullanacaksın?',
             style: HgText.caption.copyWith(color: c.textMuted)),
         const SizedBox(height: HgSpace.sm),
         AccountPicker(
           value: accountType,
           onChanged: onAccountTypeChanged,
+        ),
+        const SizedBox(height: HgSpace.xl),
+
+        Text(
+          accountType == 'business' ? 'İşletme adı' : 'Adın',
+          style: HgText.caption.copyWith(color: c.textMuted),
+        ),
+        const SizedBox(height: HgSpace.sm),
+        InviteTextField(
+          controller: nameCtrl,
+          hint: accountType == 'business' ? 'İşletme Adı' : 'Ad Soyad',
+          onChanged: (_) {},
+        ),
+        const SizedBox(height: HgSpace.xl),
+
+        Text('Telefon (isteğe bağlı)',
+            style: HgText.caption.copyWith(color: c.textMuted)),
+        const SizedBox(height: HgSpace.sm),
+        InviteTextField(
+          controller: phoneCtrl,
+          hint: '+90 5XX XXX XX XX',
+          keyboardType: TextInputType.phone,
+          onChanged: (_) {},
         ),
         const SizedBox(height: HgSpace.xl),
 
@@ -446,22 +453,6 @@ class _EmailField extends StatelessWidget {
       keyboardType: TextInputType.emailAddress,
       style: HgText.body.copyWith(color: c.text),
       decoration: _inputDecoration(c, 'ornek@email.com', Icons.email_outlined),
-    );
-  }
-}
-
-class _PhoneField extends StatelessWidget {
-  const _PhoneField({required this.c, required this.controller});
-  final HgColors c;
-  final TextEditingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.phone,
-      style: HgText.body.copyWith(color: c.text),
-      decoration: _inputDecoration(c, '+90 5XX XXX XX XX', Icons.phone_outlined),
     );
   }
 }

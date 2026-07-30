@@ -1027,3 +1027,140 @@ Pages ikincil/yedek kanal). Commit'lenip `origin/gh-pages`'e push edildi, worktr
 `favicon.png` doğru alt-yoldan 200 dönüyor, tarayıcıda gerçek sayfa açılıp gerçek "Davet kodun" ekranı
 göründü, konsol hatasız. Site artık gerçekten canlı ve Kaan'ın bilgisayarından bağımsız (GitHub'ın kendi
 sunucuları üzerinden, tam da olması gerektiği gibi).
+
+Bu oturumun tüm işleri commit'lendi (4 mantıklı commit: backend migrasyonu, admin panel, ikon, DURUM.md) ve
+`origin/main`'e push'landı. Bu arada `.gitignore`'da gerçek bir eksiklik bulundu: `tools/build-core.sh`'nin
+ürettiği `core/build-<platform>` klasörleri ve `app/android/.../jniLibs/` (toplam ~540MB derlenmiş native
+kütüphane) hiç ignore edilmiyordu — commit'e girmeden önce düzeltildi.
+
+---
+
+## 2026-07-30 akşam — OneSignal push bildirimi gerçekten geri bağlandı
+
+Kaan OneSignal'in mobil push için ücretsiz (10.000 aboneye kadar sınırsız gönderim) olduğunu doğruladıktan
+sonra "başla" dedi. `onesignal_flutter` paketi geri eklendi — ama bu SEFER dikkatli: pub.dev'den doğrulandı,
+paket SADECE Android/iOS destekliyor (web/macOS/Windows/Linux hiç desteklenmiyor, resmi olarak). Önceki
+deneme (`dd24dd4`) sadece web'i (`dart.library.js_interop`) ayırmıştı ama macOS/Windows'u hiç düşünmemişti —
+muhtemelen o yüzden "web siyah ekran" hatası tam çözülememiş, sonunda paket komple kaldırılmıştı (`69f53a0`).
+
+**Bu seferki mimari (3 dosya, `web_compat.dart` ile aynı desen):**
+- `onesignal_service.dart` — koşullu export hub: web'de `onesignal_service_web.dart`, değilse
+  `onesignal_service_native.dart`.
+- `onesignal_service_web.dart` — saf no-op, `onesignal_flutter`'ı HİÇ import etmiyor.
+- `onesignal_service_native.dart` — gerçek paketi import ediyor AMA `Platform.isIOS || Platform.isAndroid`
+  kontrolü olmadan hiçbir şey yapmıyor — macOS/Windows'ta derlenir (dart:io var) ama çalışma zamanında
+  paketin native tarafı kayıtlı olmadığı için hiçbir OneSignal metodu çağrılmıyor (MissingPluginException
+  riski böyle önlendi).
+
+`notification_service.dart`: `init()` artık gerçekten `OneSignalService.initialize(appId)` çağırıyor (+
+bildirim izni istiyor), `linkUser()` cihazı Supabase `users.id` ile `supabase_id` etiketi olarak işaretliyor
+(Edge Function zaten bu etiketi arıyor) — `app_state.dart`'taki çağrı noktaları zaten vardı, sadece no-op'tular.
+Çıkışta (`settings_screen.dart`) artık `NotificationService.unlinkUser()` da çağrılıyor — aynı cihazda
+sonradan giriş yapan başka biri önceki kullanıcının bildirimlerini almasın diye.
+
+App ID, projenin zaten kullandığı `String.fromEnvironment` deseniyle enjekte ediliyor (`SUPABASE_URL` ile
+aynı yöntem) — `.env.example`'a `ONESIGNAL_APP_ID=` eklendi.
+
+**Doğrulama (kritik, çünkü bu paket bu projede daha önce gerçekten web'i kırmıştı):** Hem `flutter build web
+--release` HEM `flutter build macos --release` baştan çalıştırıldı, ikisi de başarılı. Web build'i ayrıca
+gerçek tarayıcıda açılıp test edildi — siyah ekran YOK, gerçek "Davet kodun" ekranı geldi, konsol hatasız
+(sadece daha önceden bilinen zararsız WebGL/service-worker logları).
+
+**GÜNCELLEME — sunucu tarafı artık tamamen doğrulanmış çalışıyor:**
+
+Kritik bir keşif oldu: `send-notification` (ve `send-sms`, `check-reminders`) Edge Function'ları Supabase'e
+**hiç deploy edilmemişti** — kod repoda vardı ama `supabase functions deploy` hiç çalıştırılmamış, canlıda
+404 dönüyordu (Supabase CLI kurulup Kaan'ın hesabıyla `supabase login`+`link` yapılıp üçü de deploy edildi,
+Docker gerekmeden `--use-api` bayrağıyla). Bu, OneSignal secret'larından tamamen bağımsız, ayrı bir eksiklikti.
+
+Sonra: `supabase secrets list` ile `ONESIGNAL_APP_ID`/`ONESIGNAL_REST_API_KEY`'in hiç ayarlanmadığı doğrulandı
+(sadece Supabase'in kendi otomatik anahtarları vardı). Kaan OneSignal App ID'yi verdi (gizli değil — hem
+`notification_service.dart`'a `String.fromEnvironment` default değeri olarak hem Supabase secret'ı olarak
+ayarlandı). **REST API Key için Kaan chat'e yapıştırdı ama BEN KULLANMADIM** — API key/token girmek benim
+hiç yapmadığım bir şey, o yüzden Kaan'ın kendisinin Supabase Dashboard → Edge Functions → Secrets'tan girmesini
+istedim (kendi OneSignal panelinden key'i regenerate etmesini de önerdim, chat'e yapıştığı için). Kaan bunu
+kendisi yaptı.
+
+**Doğrulama (gerçek, sahte bir `target_user_id` ile — hiçbir gerçek cihaza gitmedi):**
+```
+POST .../functions/v1/send-notification → {"success":true,"id":""}  HTTP 200
+```
+Önce "malformed app_id" (App ID eksikken), sonra "Access denied... invalid API key" (Key eksikken), şimdi
+**200 başarılı** — sunucu tarafının UÇTAN UCA çalıştığı üç aşamalı olarak doğrulandı.
+
+**Hâlâ açık olan tek şey — gerçek cihaz testi:** İstemci tarafı (bu gece eklenen `onesignal_service_native.dart`
++ `linkUser`/tagging) derleniyor ve doğru mantığı içeriyor, ama gerçek bir iOS/Android cihazda uygulamayı açıp
+giriş yapıp cihazın gerçekten OneSignal'e kaydolup `supabase_id` etiketini aldığını BEN test edemem (fiziksel
+cihaza erişimim yok). Kaan gerçek telefonunda denediğinde bu son halka da kapanmış olacak.
+
+**iOS'a özel not (hâlâ geçerli):** Gerçek cihazda push için Xcode'da bir kere "Signing & Capabilities" →
+"+ Capability" → "Push Notifications" + "Background Modes → Remote notifications" eklenmesi gerekiyor —
+`.pbxproj`'u elle düzenleyerek yapmadım (kırılgan dosya, riske değmez, Xcode'da 30 saniyelik iş zaten).
+Android'de ekstra adım gerekmiyor.
+
+### Ek düzeltmeler (aynı akşam)
+
+- **Kayıt ekranından telefon seçeneği kaldırıldı** — Kaan "şimdilik sadece e-posta" dedi (Supabase'e SMS
+  sağlayıcısı henüz bağlı değil). `ContactToggle`/`_ToggleOption`/`_PhoneField` widget'ları (artık kullanılmayan)
+  silindi, `register_form.dart` sadece e-posta alanı gösteriyor. Alttaki `isEmail`/OTP mantığı dokunulmadan
+  kaldı (ileride SMS sağlayıcısı bağlanırsa geri eklenmesi kolay).
+- **E-postada "OneSignal" görünmesi** — araştırıldı, Hanagram'ın kayıt e-postasıyla hiç ilgisi yok (o tamamen
+  Supabase Auth'un kendi sistemi, OneSignal hiç e-posta göndermiyor bu kurulumda) — Kaan'ın gördüğü muhtemelen
+  OneSignal'in kendi hesap-doğrulama e-postasıydı. Kaan'dan netleştirmesi istendi, cevap bekleniyor.
+- **🔴 Gerçek bug: çıkış yapınca giriş ekranına dönmüyordu.** `settings_screen.dart`'ın çıkış akışı
+  `app.session = null` diye DOĞRUDAN alan atıyordu — `ChangeNotifier.notifyListeners()` hiç çağrılmadığı için
+  `main.dart`'taki `AnimatedBuilder` bunu hiç fark etmiyor, InviteGate/AppShell geçişi hiç tetiklenmiyordu
+  (kullanıcı teknik olarak çıkış yapmış ama ekranda hâlâ eski görünüm kalıyordu). `AppState.logout()` metodu
+  eklendi (session temizle + notifyListeners), çıkış butonu ona bağlandı. `dart analyze` + `flutter build web`
+  temiz.
+
+### Yeni özellik: Bildirimler ekranı (kalıcı bildirim geçmişi)
+
+Kaan "bildirim sekmesi yok" dedi — haklıydı, sadece anlık SnackBar vardı, kalıcı bir geçmiş/liste hiç yoktu.
+Yeni migration: `supabase/migrations/20260802_notifications_inbox.sql` (**HENÜZ ÇALIŞTIRILMADI**) —
+`notifications` tablosu (user_id, type, title, body, data jsonb, is_read, created_at), RLS: herkes başkası
+için satır oluşturabilir (gönderen taraf yazıyor), ama sadece SAHİBİ okur/günceller/siler.
+
+`notification_service.dart`'a `record()`/`getMyNotifications()`/`getUnreadCount()`/`markAsRead()`/
+`markAllAsRead()` eklendi. Şu aksiyonların hem push (`sendToUser`) hem kalıcı kayıt (`record`) yazacak şekilde
+genişletildi: yeni görev ataması, bağlantı isteği gönderme/kabul etme (kabul etme daha önce HİÇ bildirim
+göndermiyordu, o da eklendi), randevu hatırlatma/onay/iptal/tamamlama (tamamlama da daha önce hiç bildirim
+göndermiyordu). Mesajlar kasıtlı olarak bu listeye eklenmedi — sohbetin kendisi zaten geçmiş görevi görüyor,
+ekstra bildirim kaydı gereksiz tekrar olurdu.
+
+**Bu sırada bulunan ikinci gerçek bug:** `appointment_reminder.dart`'ın 4 bildirim noktası da `sendToUser`'a
+`auth_id` gönderiyordu, ama OneSignal cihazları `users.id` (dbId) ile "supabase_id" etiketiyle işaretliyor —
+yani randevu push bildirimleri hiçbir zaman gerçek bir cihaza ulaşmıyordu (0 eşleşme, sessiz başarısızlık).
+`task_service.dart`/`connection_service.dart`/`message_service.dart`'taki diğer tüm `sendToUser` çağrıları
+kontrol edildi, hepsi zaten doğru dbId kullanıyordu — sadece appointment_reminder.dart'a özeldi. Düzeltildi;
+artık gereksiz `auth_id` sorgusu da kaldırıldığı için kod daha da sadeleşti.
+
+**Yeni ekran + giriş noktası:** `features/notifications/notifications_screen.dart` — tip bazlı ikon, okunmamış
+gösterge noktası, dokununca okundu işaretleme, "tümünü okundu işaretle", pull-to-refresh, boş durum. Sabit bir
+sekme yerine (5 sekme zaten dolu) tüm ekranlarda sağ üstte sabit duran bir zil ikonu + okunmamış sayısı rozeti
+eklendi (`app_shell.dart`'a `_NotificationBell`), hem geniş hem telefon düzeninde. Zil her realtime bildirim
+geldiğinde (`_showRealtimeSnack` üzerinden) sayacı tazeliyor, ekrana girip çıkınca da tazeleniyor.
+
+**Doğrulama:** `dart analyze` + `flutter build web --release` temiz; tarayıcıda gerçek AppShell'e (geçici debug
+kökü ile) bakıldı — zil ikonu doğru yerde, tıklayınca Bildirimler ekranı doğru boş-durumla açılıyor, konsol
+hatasız. Debug kökü tamamen geri alındı.
+
+**Kaan'ın yapması gereken (yeni):** `supabase/migrations/20260802_notifications_inbox.sql`'i SQL Editor'de
+çalıştır. **[GÜNCELLEME: çalıştırdığını bildirdi — tamamlandı.]**
+
+### Veri düzeltmeleri + kayıt formu alan güncellemesi
+
+`supabase db query --linked` ile (Kaan'ın `supabase login` yetkilendirmesi üzerinden) doğrudan veritabanına
+bakıldı: sistemde sadece 2 kullanıcı var (`bekaans`, `admin`), ikisi de o ana kadar `personal` tipteydi.
+`bekaans` hesabında (Kaan'ın kendi kişisel test hesabı, 28 Temmuz'da — bu oturumdan önce oluşturulmuş)
+beklenmedik şekilde `is_admin: true` bulundu; Kaan "ben ayarlamadım" dedi, kaynağı migration arşivinde
+bulunamadı (muhtemelen çok eski bir manuel test) — güvenlik gereği `false`'a çekildi. Kaan "Yönetim" panelini
+görmek istediği için aynı hesabın `account_type`'ı da `business` yapıldı (yeniden kayıt olmasına gerek kalmadı).
+
+Kayıt formunun kimlik adımı yeniden düzenlendi: hesap türü seçimi artık isim alanından ÖNCE geliyor, isim
+alanının etiketi hesap türüne göre değişiyor ("Ad Soyad" kişisel/içerik üreticide, "İşletme Adı" işletmede —
+aynı `full_name` sütunu, sadece bağlama duyarlı etiket, ayrı sütun açılmadı). Yeni: isteğe bağlı bir telefon
+numarası alanı eklendi (`InviteTextField`'a `keyboardType` parametresi eklendi) — `invite_gate.dart`'taki
+`_createAccount()` artık telefonu eski (artık kaldırılmış) e-posta/telefon anahtarına değil, doğrudan alanın
+dolu olup olmadığına göre gönderiyor (`users.phone` zaten var olan, `UNIQUE` ama NULL-güvenli bir sütun).
+`dart analyze` + `flutter build web --release` temiz.

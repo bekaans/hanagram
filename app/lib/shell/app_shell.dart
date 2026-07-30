@@ -16,6 +16,7 @@ import '../features/business/business_screen.dart';
 import '../features/discover/discover_screen.dart';
 import '../features/feed/feed_screen.dart';
 import '../features/messages/messages_screen.dart';
+import '../features/notifications/notifications_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/settings/settings_provider.dart';
 import 'compose_sheet.dart';
@@ -44,6 +45,7 @@ class _AppShellState extends State<AppShell> {
   StreamSubscription<Map<String, dynamic>>? _connectionSub;
   StreamSubscription<Map<String, dynamic>>? _appointmentSub;
   StreamSubscription<Map<String, dynamic>>? _messageSub;
+  int _unreadCount = 0;
 
   @override
   void initState() {
@@ -57,7 +59,20 @@ class _AppShellState extends State<AppShell> {
       final settings = SettingsScope.of(context);
       _startRealtimeNotifications(app.session?.userId, settings);
       settings.pingOnline();
+      _loadUnreadCount();
     });
+  }
+
+  Future<void> _loadUnreadCount() async {
+    final count = await NotificationService.getUnreadCount();
+    if (mounted) setState(() => _unreadCount = count);
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
+    );
+    _loadUnreadCount();
   }
 
   /// Uygulama açıkken canlı bildirim — görev/bağlantı/randevu/mesaj
@@ -129,6 +144,7 @@ class _AppShellState extends State<AppShell> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(text), duration: const Duration(seconds: 4)),
     );
+    _loadUnreadCount();
   }
 
   @override
@@ -216,22 +232,34 @@ class _AppShellState extends State<AppShell> {
     if (wide) {
       return Scaffold(
         backgroundColor: c.bg,
-        body: Row(
+        body: Stack(
           children: [
-            SideRail(
-              items: items,
-              index: _index,
-              onSelect: _selectTab,
-              onCompose: () => _showCreateSheet(context),
-              extended: HgBreak.isDesktop(context),
-            ),
-            Container(width: 1, color: c.border),
-            Expanded(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 940),
-                  child: body,
+            Row(
+              children: [
+                SideRail(
+                  items: items,
+                  index: _index,
+                  onSelect: _selectTab,
+                  onCompose: () => _showCreateSheet(context),
+                  extended: HgBreak.isDesktop(context),
                 ),
+                Container(width: 1, color: c.border),
+                Expanded(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 940),
+                      child: body,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Positioned(
+              top: HgSpace.lg,
+              right: HgSpace.lg,
+              child: _NotificationBell(
+                count: _unreadCount,
+                onTap: _openNotifications,
               ),
             ),
           ],
@@ -249,6 +277,19 @@ class _AppShellState extends State<AppShell> {
               return false;
             },
             child: body,
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(HgSpace.md),
+                child: _NotificationBell(
+                  count: _unreadCount,
+                  onTap: _openNotifications,
+                ),
+              ),
+            ),
           ),
           Positioned(
             left: 0,
@@ -272,6 +313,59 @@ class _AppShellState extends State<AppShell> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const ComposeSheet(),
+    );
+  }
+}
+
+// ─── Bildirim zili — tüm sekmelerde sabit, sağ üstte ───
+
+class _NotificationBell extends StatelessWidget {
+  const _NotificationBell({required this.count, required this.onTap});
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = HgTheme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: c.surface.withValues(alpha: 0.85),
+              shape: BoxShape.circle,
+              border: Border.all(color: c.border.withValues(alpha: 0.5), width: 0.5),
+            ),
+            child: Icon(CupertinoIcons.bell, size: 18, color: c.text),
+          ),
+          if (count > 0)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                constraints: const BoxConstraints(minWidth: 16),
+                decoration: BoxDecoration(
+                  color: c.coral,
+                  borderRadius: BorderRadius.circular(HgRadius.pill),
+                  border: Border.all(color: c.bg, width: 1.5),
+                ),
+                child: Text(
+                  count > 99 ? '99+' : '$count',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

@@ -3,6 +3,7 @@
 // Tek sorumluluk: arkadaş/çalışan ekleme, istek gönderme/kabul etme.
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'notification_service.dart';
 import 'supabase_service.dart';
 
 /// Bağlantı durumu.
@@ -109,6 +110,23 @@ class ConnectionService {
         'role': 'friend',
       });
 
+      final myProfile =
+          await _db.from('users').select('full_name').eq('id', userId).maybeSingle();
+      final myName = myProfile?['full_name'] as String? ?? 'Birisi';
+      final body = '$myName sana bağlantı isteği gönderdi';
+      NotificationService.sendToUser(
+        targetUserId: targetUserId,
+        title: 'Yeni Bağlantı İsteği',
+        body: body,
+        data: {'type': 'connection_request'},
+      );
+      NotificationService.record(
+        targetUserId: targetUserId,
+        type: 'connection_request',
+        title: 'Yeni Bağlantı İsteği',
+        body: body,
+      );
+
       return true;
     } catch (_) {
       return false;
@@ -118,9 +136,37 @@ class ConnectionService {
   /// Bağlantı isteğini kabul et.
   static Future<bool> acceptRequest(String connectionId) async {
     try {
+      final conn = await _db
+          .from('connections')
+          .select('user_id')
+          .eq('id', connectionId)
+          .maybeSingle();
+
       await _db
           .from('connections')
           .update({'status': 'accepted'}).eq('id', connectionId);
+
+      final requesterId = conn?['user_id'] as String?;
+      final myId = await SupabaseService.myDbId();
+      if (requesterId != null && myId != null) {
+        final myProfile =
+            await _db.from('users').select('full_name').eq('id', myId).maybeSingle();
+        final myName = myProfile?['full_name'] as String? ?? 'Birisi';
+        final body = '$myName bağlantı isteğini kabul etti';
+        NotificationService.sendToUser(
+          targetUserId: requesterId,
+          title: 'Bağlantı Kabul Edildi',
+          body: body,
+          data: {'type': 'connection_accepted'},
+        );
+        NotificationService.record(
+          targetUserId: requesterId,
+          type: 'connection_accepted',
+          title: 'Bağlantı Kabul Edildi',
+          body: body,
+        );
+      }
+
       return true;
     } catch (_) {
       return false;

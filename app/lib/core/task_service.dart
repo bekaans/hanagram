@@ -195,11 +195,19 @@ class TaskService {
             .maybeSingle();
         final creatorName = creatorProfile?['full_name'] as String? ?? 'Birisi';
 
+        final notifBody = '$creatorName sana bir görev atadı: $title';
         NotificationService.sendToUser(
           targetUserId: assignedTo,
           title: 'Yeni Görev',
-          body: '$creatorName sana bir görev atadı: $title',
+          body: notifBody,
           data: {'task_id': taskId, 'type': 'new_task'},
+        );
+        NotificationService.record(
+          targetUserId: assignedTo,
+          type: 'task',
+          title: 'Yeni Görev',
+          body: notifBody,
+          data: {'task_id': taskId},
         );
       }
 

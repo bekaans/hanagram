@@ -393,7 +393,8 @@ class _InviteGateState extends State<InviteGate> {
         fullName: name,
         accountType: _accountType,
         email: _isEmail ? _emailCtrl.text.trim() : null,
-        phone: !_isEmail ? _phoneCtrl.text.trim() : null,
+        // Telefon isteğe bağlı bir profil bilgisi — giriş yöntemiyle ilgisi yok.
+        phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
         referralCode: _validCode,
         avatarUrl: _avatarUrl,
       );

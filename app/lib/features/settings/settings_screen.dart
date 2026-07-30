@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as sup hide AuthChangeEv
 
 import 'package:hanagram_design/design.dart';
 import '../../core/app_state.dart';
+import '../../core/notification_service.dart';
 import '../../core/supabase_service.dart';
 import '../../core/verification_service.dart';
 import 'settings_provider.dart';
@@ -549,6 +550,7 @@ class _SettingsContent extends StatelessWidget {
               try {
                 await sup.Supabase.instance.client.auth.signOut();
                 SupabaseService.clearCache();
+                await NotificationService.unlinkUser();
               } catch (_) {}
               // ── 2. Tüm SharedPreferences verilerini sil ──
               try {
@@ -557,8 +559,7 @@ class _SettingsContent extends StatelessWidget {
               } catch (_) {}
               // ── 3. AppState session'ını temizle ──
               if (context.mounted) {
-                final app = AppScope.of(context);
-                app.session = null;
+                AppScope.of(context).logout();
               }
               // ── 4. Ana sayfaya dön ──
               if (context.mounted) {
