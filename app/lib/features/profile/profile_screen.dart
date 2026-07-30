@@ -24,8 +24,6 @@ import 'widgets/profile_actions.dart';
 import 'widgets/profile_directions.dart';
 import 'widgets/profile_reviews.dart';
 import 'widgets/profile_services_list.dart';
-import 'widgets/referral_code_banner.dart';
-
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, this.userId, this.isOwnProfile = true});
 
@@ -258,12 +256,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
           HgSpace.bottomPadding(context),
         ),
         children: [
-          // ── Referans kodu (sadece kendi profilim) ──
-          if (_isOwn && _referralCode != null) ...[
-            ReferralCodeBanner(code: _referralCode!),
-            const SizedBox(height: HgSpace.xl),
-          ],
-
           // ── Profil başlığı ──
           ProfileHeader(
             name: _targetName,
@@ -271,6 +263,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             bio: _targetBio,
             isBusiness: isPro,
             isVerified: _isVerified,
+            referralCode: _isOwn ? _referralCode : null,
           ),
           if (_onlineStatusText != null) ...[
             const SizedBox(height: HgSpace.xs),

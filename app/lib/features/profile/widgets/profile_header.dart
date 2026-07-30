@@ -14,6 +14,7 @@ class ProfileHeader extends StatelessWidget {
     required this.bio,
     required this.isBusiness,
     this.isVerified = false,
+    this.referralCode,
   });
 
   final String name;
@@ -21,6 +22,7 @@ class ProfileHeader extends StatelessWidget {
   final String bio;
   final bool isBusiness;
   final bool isVerified;
+  final String? referralCode;
 
   @override
   Widget build(BuildContext context) {
@@ -96,6 +98,18 @@ class ProfileHeader extends StatelessWidget {
           style:
               HgText.caption.copyWith(color: c.textMuted),
         ),
+        // Referans kodu (isteğe bağlı)
+        if (referralCode != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            'Referans: $referralCode',
+            style: HgText.caption.copyWith(
+              color: c.textFaint,
+              shadows: null,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
         // Bio
         if (bio.isNotEmpty) ...[
           const SizedBox(height: HgSpace.sm),
