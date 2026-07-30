@@ -8,7 +8,11 @@
     "description": "Sosyal medya iş platformu — içerik üret, keşfet, işletmeni yönet.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
-    "categories": ["business", "social", "productivity"],
+    "categories": [
+        "business",
+        "social",
+        "productivity"
+    ],
     "lang": "tr",
     "dir": "ltr",
     "scope": "/",
