@@ -52,3 +52,4 @@ app.*.map.json
 key.properties
 *.jks
 *.keystore
+.temp/
