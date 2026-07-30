@@ -1164,3 +1164,32 @@ numarası alanı eklendi (`InviteTextField`'a `keyboardType` parametresi eklendi
 `_createAccount()` artık telefonu eski (artık kaldırılmış) e-posta/telefon anahtarına değil, doğrudan alanın
 dolu olup olmadığına göre gönderiyor (`users.phone` zaten var olan, `UNIQUE` ama NULL-güvenli bir sütun).
 `dart analyze` + `flutter build web --release` temiz.
+
+---
+
+## 2026-07-31 — Commitlenmemiş iş güvenceye alındı + MiMo worker'ın ilk gerçek denemesi
+
+**Önceki oturumdan (30 Temmuz) commitlenmemiş kalan iş bulundu ve commitlendi:** OneSignal geri
+entegrasyonu, Bildirimler ekranı, 4 ayar toggle'ının bağlanması, kayıt formu telefon alanı — hepsi
+çalışma ağacında duruyordu, `795d054`'ten beri hiç commit edilmemişti (kayıp riski vardı).
+Ayrıca `app/supabase/.temp/` (Supabase CLI'ın yerel proje-bağlama önbelleği, hassas değil ama
+izlenmemeli) yanlışlıkla commit edilmişti — `.gitignore`'a eklendi, tracking'den çıkarıldı.
+
+**Kaan'ın bildirdiği iki gerçek sorun:**
+1. **Kayıt/giriş OTP e-postası gelmiyor** — kod hatası DEĞİL. `signInWithOtp` çağrısı doğru, hata
+   doğru yakalanıyor, ama proje hâlâ Supabase'in varsayılan (test-amaçlı, saatte birkaç e-postayla
+   sınırlı) e-posta servisini kullanıyor — repoda `supabase/config.toml` yok, hiçbir SMTP ayarı yok.
+   **Kaan'ın yapması gereken:** Supabase Dashboard → Authentication → Emails → SMTP Settings'ten
+   gerçek bir sağlayıcı (Resend önerildi) bağlamak — kod tarafında yapılacak bir şey yok.
+2. **Profildeki referans kodu çok büyük görünüyordu + tutarsız gösteriliyordu** — kök neden: ayrı,
+   büyük bir `ReferralCodeBanner` (gradient kart, kopyala/paylaş ikonlu) kullanılıyordu, ve
+   `_isOwn && _referralCode != null` şartı kod yüklenene kadar bloğu tamamen gizliyordu. Düzeltildi.
+
+**MiMo delegasyon sisteminin (bkz. `~/.claude/skills/arkadyum-code-v2/mimo-worker/`) gerçek üretim
+kodu üzerindeki İLK denemesi:** `profile_header.dart`'a küçük, isteğe bağlı `referralCode` parametresi
++ handle'ın altında "Referans: KOD" satırı eklendi — **ucuz tier'da ilk denemede geçti.**
+`profile_screen.dart`'taki bağlama değişikliği (banner kaldır, yeni parametreyi besle, ölü import
+sil) ucuz tier'da FORMAT hatasıyla düştü (SEARCH/REPLACE blok işaretleri eksikti), talimat netleştirilip
+pro tier'a yükseltildi, **2. denemede geçti**. Ölü `referral_code_banner.dart` doğrudan silindi (MiMo
+işi değil — trivial silme). `dart analyze lib` + `flutter build web --release` her adımdan sonra
+gerçekten çalıştırılıp temiz/başarılı olduğu doğrulandı — merdiven tam olarak tasarlandığı gibi işledi.
