@@ -193,99 +193,103 @@ class AccountingService {
   /// Belirli bir ayın özet raporunu oluştur.
   static Future<MonthlyReport> getMonthlyReport(
       int year, int month) async {
-    final userId = await SupabaseService.myDbId();
-    if (userId == null) {
+    try {
+      final userId = await SupabaseService.myDbId();
+      if (userId == null) {
+        return _emptyReport(year, month);
+      }
+
+      final from = DateTime(year, month, 1);
+      final to = DateTime(year, month + 1, 0, 23, 59, 59);
+      final fromStr = from.toIso8601String();
+      final toStr = to.toIso8601String();
+
+      final results = await Future.wait([
+        // Gelir toplamı
+        _db
+            .from('accounting_entries')
+            .select('amount')
+            .eq('user_id', userId)
+            .eq('type', 'income')
+            .gte('date', fromStr)
+            .lte('date', toStr),
+        // Gider toplamı
+        _db
+            .from('accounting_entries')
+            .select('amount')
+            .eq('user_id', userId)
+            .eq('type', 'expense')
+            .gte('date', fromStr)
+            .lte('date', toStr),
+        // Toplam işlem
+        _db
+            .from('accounting_entries')
+            .select('id')
+            .eq('user_id', userId)
+            .gte('date', fromStr)
+            .lte('date', toStr),
+        // Yeni müşteriler (o ay ilk CRM kaydı olan)
+        _db
+            .from('crm_entries')
+            .select('customer_name')
+            .eq('user_id', userId)
+            .gte('date', fromStr)
+            .lte('date', toStr),
+        // Randevular
+        _db
+            .from('appointments')
+            .select('id, status')
+            .or('created_by.eq.$userId,attendee_id.eq.$userId')
+            .gte('date', from.toIso8601String().split('T').first)
+            .lte('date', to.toIso8601String().split('T').first),
+        // Yeni kullanıcılar (o ay kayıt olanlar — tüm kullanıcılar)
+        _db
+            .from('users')
+            .select('id')
+            .gte('created_at', fromStr)
+            .lte('created_at', toStr),
+      ]);
+
+      final income = (results[0] as List)
+          .fold<int>(0, (sum, r) => sum + ((r as Map)['amount'] as num? ?? 0).toInt());
+      final expense = (results[1] as List)
+          .fold<int>(0, (sum, r) => sum + ((r as Map)['amount'] as num? ?? 0).toInt());
+      final txCount = (results[2] as List).length;
+
+      // Benzersiz yeni müşteriler
+      final crmRows = results[3] as List;
+      final uniqueCustomers = <String>{};
+      for (final r in crmRows) {
+        final name = (r as Map)['customer_name'] as String? ?? '';
+        if (name.isNotEmpty) uniqueCustomers.add(name.toLowerCase());
+      }
+
+      // Randevu istatistikleri
+      final apptRows = results[4] as List;
+      final totalAppts = apptRows.length;
+      final completedAppts = apptRows
+          .where((r) => (r as Map)['status'] == 'confirmed')
+          .length;
+      final cancelledAppts = apptRows
+          .where((r) => (r as Map)['status'] == 'cancelled')
+          .length;
+
+      return MonthlyReport(
+        month: month,
+        year: year,
+        totalIncome: income,
+        totalExpense: expense,
+        netProfit: income - expense,
+        transactionCount: txCount,
+        newCustomers: uniqueCustomers.length,
+        totalAppointments: totalAppts,
+        newAppointments: totalAppts, // tümü yeni o ay için
+        completedAppointments: completedAppts,
+        cancelledAppointments: cancelledAppts,
+      );
+    } catch (_) {
       return _emptyReport(year, month);
     }
-
-    final from = DateTime(year, month, 1);
-    final to = DateTime(year, month + 1, 0, 23, 59, 59);
-    final fromStr = from.toIso8601String();
-    final toStr = to.toIso8601String();
-
-    final results = await Future.wait([
-      // Gelir toplamı
-      _db
-          .from('accounting_entries')
-          .select('amount')
-          .eq('user_id', userId)
-          .eq('type', 'income')
-          .gte('date', fromStr)
-          .lte('date', toStr),
-      // Gider toplamı
-      _db
-          .from('accounting_entries')
-          .select('amount')
-          .eq('user_id', userId)
-          .eq('type', 'expense')
-          .gte('date', fromStr)
-          .lte('date', toStr),
-      // Toplam işlem
-      _db
-          .from('accounting_entries')
-          .select('id')
-          .eq('user_id', userId)
-          .gte('date', fromStr)
-          .lte('date', toStr),
-      // Yeni müşteriler (o ay ilk CRM kaydı olan)
-      _db
-          .from('crm_entries')
-          .select('customer_name')
-          .eq('user_id', userId)
-          .gte('date', fromStr)
-          .lte('date', toStr),
-      // Randevular
-      _db
-          .from('appointments')
-          .select('id, status')
-          .or('created_by.eq.$userId,attendee_id.eq.$userId')
-          .gte('date', from.toIso8601String().split('T').first)
-          .lte('date', to.toIso8601String().split('T').first),
-      // Yeni kullanıcılar (o ay kayıt olanlar — tüm kullanıcılar)
-      _db
-          .from('users')
-          .select('id')
-          .gte('created_at', fromStr)
-          .lte('created_at', toStr),
-    ]);
-
-    final income = (results[0] as List)
-        .fold<int>(0, (sum, r) => sum + ((r as Map)['amount'] as num? ?? 0).toInt());
-    final expense = (results[1] as List)
-        .fold<int>(0, (sum, r) => sum + ((r as Map)['amount'] as num? ?? 0).toInt());
-    final txCount = (results[2] as List).length;
-
-    // Benzersiz yeni müşteriler
-    final crmRows = results[3] as List;
-    final uniqueCustomers = <String>{};
-    for (final r in crmRows) {
-      final name = (r as Map)['customer_name'] as String? ?? '';
-      if (name.isNotEmpty) uniqueCustomers.add(name.toLowerCase());
-    }
-
-    // Randevu istatistikleri
-    final apptRows = results[4] as List;
-    final totalAppts = apptRows.length;
-    final completedAppts = apptRows
-        .where((r) => (r as Map)['status'] == 'confirmed')
-        .length;
-    final cancelledAppts = apptRows
-        .where((r) => (r as Map)['status'] == 'cancelled')
-        .length;
-
-    return MonthlyReport(
-      month: month,
-      year: year,
-      totalIncome: income,
-      totalExpense: expense,
-      netProfit: income - expense,
-      transactionCount: txCount,
-      newCustomers: uniqueCustomers.length,
-      totalAppointments: totalAppts,
-      newAppointments: totalAppts, // tümü yeni o ay için
-      completedAppointments: completedAppts,
-      cancelledAppointments: cancelledAppts,
-    );
   }
 
   /// İki ay arasındaki karşılaştırma.
