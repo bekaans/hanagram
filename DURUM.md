@@ -462,6 +462,7 @@ durumda. Ortak bir pakete taşınmalı — iki kopya er geç ayrışır.
 | 8 | profile_header.dart: referans kodu kopyalama regresyonu düzeltme | - | - | - | 31 Tem | **Claude-doğrudan (kural ihlali — basit değildi, MiMo'ya gitmeliydi)** |
 | 9 | profile_screen.dart: başkasının profilinde geri butonu ekleme | - | - | - | 31 Tem | **Claude-doğrudan (aynı ihlal)** |
 | 10 | app_shell.dart: Keşfet sekmesi kaldırma | - | - | - | 31 Tem | mimo-cheap FAIL (format) → mimo-pro (2. deneme) |
+| 11 | accounting_service.dart: getMonthlyReport'a try/catch (sonsuz yükleme kapı hatası) | - | - | - | 31 Tem | mimo-cheap (1. deneme) |
 | 6 | Web build tamamlandı: web_compat + PlatformImage + ffi_stub web bridge | 80K | 5K | 16:1 | 1d |
 
 ## ⚠️ Backend entegrasyon durumu (keşif: 2026-07-29 — Kaan'ın "çalışmıyor" bildirimi üzerine)
