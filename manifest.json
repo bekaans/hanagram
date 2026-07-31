@@ -15,7 +15,7 @@
     ],
     "lang": "tr",
     "dir": "ltr",
-    "scope": "/hanagram/",
+    "scope": "/",
     "icons": [
         {
             "src": "icons/Icon-192.png",
