@@ -13,7 +13,6 @@ import '../core/notification_service.dart';
 import '../core/supabase_service.dart';
 import 'package:hanagram_design/design.dart';
 import '../features/business/business_screen.dart';
-import '../features/discover/discover_screen.dart';
 import '../features/feed/feed_screen.dart';
 import '../features/messages/messages_screen.dart';
 import '../features/notifications/notifications_screen.dart';
@@ -53,7 +52,6 @@ class _AppShellState extends State<AppShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final app = AppScope.of(context);
       app.loadFeed();
-      app.loadDiscover();
       // Tab controller'ı dinle — başka ekranlardan sekme geçişi için
       app.tabController.addListener(_onTabChanged);
       final settings = SettingsScope.of(context);
@@ -191,7 +189,6 @@ class _AppShellState extends State<AppShell> {
   // Alt bar: Ana Sayfa + Keşfet + Profil + Mesajlar (+ Yönetim işletme ise)
   List<NavItem> _items(bool pro) => [
         const NavItem(CupertinoIcons.house, CupertinoIcons.house_fill, 'Ana Sayfa'),
-        const NavItem(CupertinoIcons.compass, CupertinoIcons.compass_fill, 'Keşfet'),
         const NavItem(CupertinoIcons.person, CupertinoIcons.person_fill, 'Profil'),
         const NavItem(CupertinoIcons.chat_bubble, CupertinoIcons.chat_bubble_fill, 'Mesajlar'),
         if (pro)
@@ -201,7 +198,6 @@ class _AppShellState extends State<AppShell> {
   Widget _page(int i, bool pro) {
     final pages = <Widget>[
       const FeedScreen(),
-      const DiscoverScreen(),
       const ProfileScreen(),
       const MessagesScreen(),
       if (pro) const BusinessScreen(),

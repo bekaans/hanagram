@@ -198,6 +198,27 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                       ),
                     ],
                   ),
+                )
+              else
+                // Başkasının profili — bu ekran tab değil, Navigator.push ile
+                // açıldı, geri dönmek için gerçek bir buton lazım.
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: HgSpace.lg),
+                  child: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).pop(),
+                        child: Container(
+                          padding: const EdgeInsets.all(HgSpace.sm),
+                          decoration: BoxDecoration(
+                            color: c.surfaceAlt.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(HgRadius.pill),
+                          ),
+                          child: Icon(CupertinoIcons.back, size: 19, color: c.textMuted),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
 
               // ─── Tab bar ───

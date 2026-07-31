@@ -450,13 +450,18 @@ durumda. Ortak bir pakete taşınmalı — iki kopya er geç ayrışır.
 
 ## Sprint geçmişi
 
-| Turn | Ne yapıldı | Input (~) | Output (~) | Oran | Süre |
-|---|---|---|---|---|---|
-| 1 | dart analyze temizliği (21→0 uyarı) | 50K | 2K | 25:1 | 3d |
-| 2 | Genome yazımı (DURUM.md) | 15K | 5K | 3:1 | 2d |
-| 3 | Tech debt: 5 dosya bölündü (577+557+463+387+367→288+229+288+203+217) | 120K | 25K | 4.8:1 | 1d |
-| 4 | Tech debt: discover+settings bölündü (473+463→257+218+232+243) | 60K | 12K | 5:1 | 1d |
-| 5 | Tech debt: admin main.dart bölündü (779→178+73+87+98+285+153+81) | 50K | 15K | 3.3:1 | 1d |
+| Turn | Ne yapıldı | Input (~) | Output (~) | Oran | Süre | Tier |
+|---|---|---|---|---|---|---|
+| 1 | dart analyze temizliği (21→0 uyarı) | 50K | 2K | 25:1 | 3d | Claude |
+| 2 | Genome yazımı (DURUM.md) | 15K | 5K | 3:1 | 2d | Claude |
+| 3 | Tech debt: 5 dosya bölündü (577+557+463+387+367→288+229+288+203+217) | 120K | 25K | 4.8:1 | 1d | Claude |
+| 4 | Tech debt: discover+settings bölündü (473+463→257+218+232+243) | 60K | 12K | 5:1 | 1d | Claude |
+| 5 | Tech debt: admin main.dart bölündü (779→178+73+87+98+285+153+81) | 50K | 15K | 3.3:1 | 1d | Claude |
+| 6 | profile_header.dart: referralCode parametresi + inline gösterim (ilk MiMo denemesi) | - | - | - | 31 Tem | mimo-cheap (1. deneme) |
+| 7 | profile_screen.dart: banner kaldır, yeni parametre bağla | - | - | - | 31 Tem | mimo-cheap FAIL → mimo-pro (2. deneme) |
+| 8 | profile_header.dart: referans kodu kopyalama regresyonu düzeltme | - | - | - | 31 Tem | **Claude-doğrudan (kural ihlali — basit değildi, MiMo'ya gitmeliydi)** |
+| 9 | profile_screen.dart: başkasının profilinde geri butonu ekleme | - | - | - | 31 Tem | **Claude-doğrudan (aynı ihlal)** |
+| 10 | app_shell.dart: Keşfet sekmesi kaldırma | - | - | - | 31 Tem | mimo-cheap FAIL (format) → mimo-pro (2. deneme) |
 | 6 | Web build tamamlandı: web_compat + PlatformImage + ffi_stub web bridge | 80K | 5K | 16:1 | 1d |
 
 ## ⚠️ Backend entegrasyon durumu (keşif: 2026-07-29 — Kaan'ın "çalışmıyor" bildirimi üzerine)

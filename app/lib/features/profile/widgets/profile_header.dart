@@ -3,6 +3,7 @@
 // Ortada büyük avatar + isim + doğrulama yıldızı (sarı/mavi).
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:hanagram_design/design.dart';
 
@@ -98,16 +99,21 @@ class ProfileHeader extends StatelessWidget {
           style:
               HgText.caption.copyWith(color: c.textMuted),
         ),
-        // Referans kodu (isteğe bağlı)
+        // Referans kodu (isteğe bağlı) — dokununca panoya kopyalanır
         if (referralCode != null) ...[
           const SizedBox(height: 2),
-          Text(
-            'Referans: $referralCode',
-            style: HgText.caption.copyWith(
-              color: c.textFaint,
-              shadows: null,
+          GestureDetector(
+            onTap: () => _copyReferralCode(context, referralCode!, c),
+            child: Text(
+              'Referans: $referralCode',
+              style: HgText.caption.copyWith(
+                color: c.textFaint,
+                shadows: null,
+                decoration: TextDecoration.underline,
+                decorationColor: c.textFaint,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
-            overflow: TextOverflow.ellipsis,
           ),
         ],
         // Bio
@@ -121,6 +127,24 @@ class ProfileHeader extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+
+  void _copyReferralCode(BuildContext context, String code, HgColors c) {
+    Clipboard.setData(ClipboardData(text: code));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Kod kopyalandı!',
+          style: HgText.body.copyWith(color: c.onBrand),
+        ),
+        backgroundColor: c.violet,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(HgRadius.sm),
+        ),
+      ),
     );
   }
 }
