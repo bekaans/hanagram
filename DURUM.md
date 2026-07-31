@@ -444,6 +444,7 @@ durumda. Ortak bir pakete taşınmalı — iki kopya er geç ayrışır.
 | Ajan `core.call()`'ı `Future` sanıp `await` koyar (aslında senkron, `Map` döner) | Görev dosyasında imzayı ACIKÇA "senkron, await KOYMA" diye yaz |
 | Ajan aynı hatada 3+ kez takılıp kendini düzeltemez | 5 denemede kapı geçmediyse Claude devralır — `.son` dosyasını okuyup tek satırı elle düzeltmek, tekrar tekrar tüm dosyayı yazdırmaktan ucuz |
 | Flash bazen kod yerine görünür metinde "nasıl kısaltırım" diye kendi kendine tartışır, bütçe kod yazmadan biter | Dosya boyutu sınırını görevi BÖLEREK karşıla, ajana "kısalt" deme |
+| `intro.mp4` (açılış animasyonu) Chrome'da çalışıp Safari'de takılıyordu — `moov` atomu dosyanın %99,8'inde (mdat'tan sonra), Safari web'de ilerlemeli oynatma için moov'u erken ister, Chrome tolere ediyor | Herhangi bir video asset'i eklenirken/değiştirilirken `ffmpeg -i x.mp4 -c copy -movflags +faststart x_fixed.mp4` ile remux et (yeniden kodlama yok, kalite/boyut aynı kalır) |
 
 ---
 
