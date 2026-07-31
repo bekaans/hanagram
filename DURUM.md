@@ -1193,3 +1193,35 @@ sil) ucuz tier'da FORMAT hatasıyla düştü (SEARCH/REPLACE blok işaretleri ek
 pro tier'a yükseltildi, **2. denemede geçti**. Ölü `referral_code_banner.dart` doğrudan silindi (MiMo
 işi değil — trivial silme). `dart analyze lib` + `flutter build web --release` her adımdan sonra
 gerçekten çalıştırılıp temiz/başarılı olduğu doğrulandı — merdiven tam olarak tasarlandığı gibi işledi.
+
+---
+
+## 2026-07-31 (devam) — Gerçek e-posta teslimatı + özel domain kuruldu
+
+**E-posta OTP sorunu kalıcı olarak çözüldü.** Kök sebep: proje Supabase'in varsayılan,
+test-amaçlı e-posta servisini kullanıyordu (saatte birkaç e-postayla sınırlı, üretime uygun değil).
+Kaan kendi hesabıyla **Resend** (SMTP sağlayıcı) kurdu, domain doğrulaması (DKIM+SPF+DMARC, DNS
+kayıtları) tamamlandı, Supabase Authentication → SMTP Settings'e bağlandı (custom SMTP açılınca
+Supabase'in kendi limiti de otomatik saatte 30'a çıktı). Magic Link e-posta şablonu (`{{ .Token }}`
+ile 6 haneli kod, Hanagram marka renkleriyle — arka plan `#05030A`, vurgu `#A855F7`, gerçek logo)
+elden geçirildi. Gerçek `POST /auth/v1/otp` çağrılarıyla uçtan uca doğrulandı — kod artık gerçekten
+ulaşıyor, doğru marka/biçimle.
+
+**Yeni domain: `hanagram.com.tr`** satın alındı (Kaan, Türk Ticaret üzerinden — not: `hanagram.com`
+2017'den beri başkasına ait, alınamadı). GitHub Pages'e özel domain olarak bağlandı:
+- Web build **kök dizin için** (`--base-href /`, önceden `/hanagram/` alt-yoluna göreydi) yeniden alındı,
+  `gh-pages` dalına worktree ile deploy edildi, `CNAME` dosyası eklendi.
+- DNS: 4 adet `A` kaydı (185.199.108/109/110/111.153) kök domain için, `www` için `bekaans.github.io`'ya
+  `CNAME` — ikisi de panelin otomatik eklediği yanlış varsayılan kayıtların (bir A kaydı yanlış IP'ye,
+  www CNAME'i domain'in kendisine gidiyordu) üzerine düzeltilerek kuruldu.
+- GitHub Pages'in kendi SSL sertifikası (`hanagram.com.tr` için, Let's Encrypt) başarıyla çıkarıldı ve
+  aktifleşti, **Enforce HTTPS** açıldı.
+- Doğrulama: `https://hanagram.com.tr` → 200, doğru sertifika (`CN=hanagram.com.tr`, doğrulama başarılı),
+  gerçek `<title>Hanagram</title>` ve `main.dart.js` doğru yükleniyor. `www.hanagram.com.tr` → 301 ile
+  kök domain'e yönleniyor. `bekaans.github.io/hanagram/` artık kullanılmıyor, kullanıcılar doğrudan
+  kendi domaininden giriyor.
+
+**Açık kalan (küçük, kozmetik):** E-posta gelen kutusu önizleme satırında (istemci listesinde, e-posta
+açılmadan önceki kısa özet) içerik metni görünmüyor — muhtemelen Supabase'in şablon editörünün düz-metin
+(text/plain) alternatifini ayrıca kontrol etmeye izin vermemesinden kaynaklanıyor, bizim tarafımızdan
+düzeltilebilir görünmüyor. E-postanın kendisi (açılınca) tamamen doğru ve eksiksiz — bu sadece kozmetik.
