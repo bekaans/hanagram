@@ -4,10 +4,19 @@
 // 2 sn sonra dokunulursa otomatik geçilir.
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:hanagram_design/design.dart';
+
+/// Web'de bu dosya GitHub Pages üzerinden güvenilir şekilde stream edilemiyor
+/// (ara sıra 503 dönüyor) — Cloudflare R2'de (ücretsiz, sınırsız egress)
+/// barındırılıyor. Yerel platformlarda (iOS/Android/macOS/Windows) dosya
+/// uygulamayla birlikte paketlendiği için bu sorun hiç yaşanmıyor, oradan
+/// okunmaya devam ediliyor.
+const String _webIntroVideoUrl =
+    'https://pub-11522199468a4dfc982cc7a2eb02c4c7.r2.dev/hanagram%20logo%20animasyon.mp4';
 
 class VideoSplash extends StatefulWidget {
   const VideoSplash({super.key, required this.onDone});
@@ -27,7 +36,9 @@ class _VideoSplashState extends State<VideoSplash> {
   @override
   void initState() {
     super.initState();
-    _ctrl = VideoPlayerController.asset('assets/images/intro.mp4')
+    _ctrl = (kIsWeb
+      ? VideoPlayerController.networkUrl(Uri.parse(_webIntroVideoUrl))
+      : VideoPlayerController.asset('assets/images/intro.mp4'))
       ..setVolume(0)
       ..setPlaybackSpeed(1.5) // 1.5x hız
       ..initialize().then((_) {
