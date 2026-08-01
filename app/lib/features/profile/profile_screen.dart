@@ -12,6 +12,7 @@ import '../../core/message_service.dart';
 import '../../core/post_service.dart';
 import '../../core/profile_service.dart';
 import '../../core/referral_service.dart';
+import '../../core/review_service.dart';
 import '../../core/supabase_service.dart';
 import '../../core/verification_service.dart';
 import '../../core/utils.dart';
@@ -37,12 +38,13 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderStateMixin {
+class _ProfileScreenState extends State<ProfileScreen> {
   ProfileStatsData? _statsData;
   bool _isGranted = false;
   bool _isVerified = false;
   String? _referralCode;
-  late TabController _tabCtrl;
+  RatingSummary _rating = const RatingSummary();
+  final GlobalKey _reviewsKey = GlobalKey();
 
   // Görüntülenen profilin bilgileri — kendi profilim ya da widget.userId
   // (handle) sahibinin gerçek verisi. `app.session` sadece KENDİ oturumumu
@@ -75,14 +77,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
     _loadProfileData();
-  }
-
-  @override
-  void dispose() {
-    _tabCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _loadProfileData() async {
@@ -127,6 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       ProfileService.getProfileStats(authId),
       VerificationService.isVerified(authId),
       ConnectionService.getMyConnections().catchError((_) => <Map<String, dynamic>>[]),
+      ReviewService.getRatingSummary(dbId),
       if (_isOwn) ReferralService.getMyCode(dbId).catchError((_) => null),
     ]);
 
@@ -134,13 +130,15 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     final verified = results[1] as bool;
     final connections = results[2] as List<Map<String, dynamic>>;
     final granted = connections.isNotEmpty;
-    final code = _isOwn ? results[3] as String? : null;
+    final rating = results[3] as RatingSummary;
+    final code = _isOwn ? results[4] as String? : null;
 
     if (mounted) {
       setState(() {
         _statsData = stats;
         _isVerified = verified;
         _isGranted = granted;
+        _rating = rating;
         _referralCode = code;
       });
     }
@@ -221,34 +219,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                   ),
                 ),
 
-              // ─── Tab bar ───
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: HgSpace.lg),
-                child: TabBar(
-                  controller: _tabCtrl,
-                  labelColor: c.violet,
-                  unselectedLabelColor: c.textMuted,
-                  indicatorColor: c.violet,
-                  indicatorSize: TabBarIndicatorSize.label,
-                  labelStyle: HgText.bodyStrong.copyWith(color: c.violet, shadows: null),
-                  unselectedLabelStyle: HgText.body.copyWith(color: c.textMuted, shadows: null),
-                  tabs: const [
-                    Tab(text: 'Profil'),
-                    Tab(text: 'Yorumlar'),
-                  ],
-                ),
-              ),
-
-              // ─── Sekme içeriği ───
-              Expanded(
-                child: TabBarView(
-                  controller: _tabCtrl,
-                  children: [
-                    _buildProfileTab(c, app, isPro, stats),
-                    _buildReviewsTab(c),
-                  ],
-                ),
-              ),
+              // ─── Tek sayfa: profil + (işletmeyse) yorumlar en altta ───
+              Expanded(child: _buildProfileBody(c, app, isPro, stats)),
             ],
           );
 
@@ -266,7 +238,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildProfileTab(HgColors c, AppState app, bool isPro, ProfileStatsData? stats) {
+  Widget _buildProfileBody(HgColors c, AppState app, bool isPro, ProfileStatsData? stats) {
     return RefreshIndicator(
       onRefresh: _loadProfileData,
       child: ListView(
@@ -297,6 +269,35 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
               ),
             ),
           ],
+          if (isPro && _rating.hasRatings) ...[
+            const SizedBox(height: HgSpace.sm),
+            Center(
+              child: GestureDetector(
+                onTap: _scrollToReviews,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.star_rounded, size: 18, color: c.warning),
+                    const SizedBox(width: 4),
+                    Text(
+                      _rating.averageLabel,
+                      style: HgText.bodyStrong.copyWith(color: c.text, shadows: null),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '· ${_rating.count} değerlendirme',
+                      style: HgText.caption.copyWith(
+                        color: c.violet,
+                        shadows: null,
+                        decoration: TextDecoration.underline,
+                        decorationColor: c.violet,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: HgSpace.xl),
 
           // ── İstatistikler ──
@@ -304,6 +305,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             targetAuthId: _targetAuthId!,
             isOwner: _isOwn,
             isGranted: _isGranted,
+            isBusiness: isPro,
+            targetDbId: _targetDbId,
           ),
           const SizedBox(height: HgSpace.xl),
 
@@ -319,7 +322,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
           if (isPro) ...[
             // ── Hizmetler ──
-            ProfileServicesList(c: c),
+            ProfileServicesList(businessId: _targetDbId!),
             const SizedBox(height: HgSpace.xl),
 
             // ── Yol Tarifleri ──
@@ -332,30 +335,32 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
             // ── Portfolyo grid ──
             _PortfolioSection(c: c, authorId: _targetDbId!),
+            const SizedBox(height: HgSpace.xl),
+
+            // ── Yorumlar (artık ayrı sekme değil, sayfanın en altında) ──
+            KeyedSubtree(
+              key: _reviewsKey,
+              child: ProfileReviews(
+                businessId: _targetDbId!,
+                canWrite: !_isOwn,
+                onWrote: _loadProfileData,
+              ),
+            ),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildReviewsTab(HgColors c) {
-    return RefreshIndicator(
-      onRefresh: _loadProfileData,
-      child: ListView(
-        padding: EdgeInsets.fromLTRB(
-          HgSpace.lg,
-          HgSpace.lg,
-          HgSpace.lg,
-          HgSpace.bottomPadding(context),
-        ),
-        children: [
-          ProfileReviews(
-            businessId: _targetDbId!,
-            canWrite: !_isOwn,
-            onWrote: _loadProfileData,
-          ),
-        ],
-      ),
+  /// Puan satırına dokununca sayfanın altındaki yorumlar bölümüne kaydırır.
+  void _scrollToReviews() {
+    final ctx = _reviewsKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
+      alignment: 0.1,
     );
   }
 

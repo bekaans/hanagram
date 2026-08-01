@@ -1,12 +1,15 @@
 // Hanagram — profil istatistik satırı (Supabase)
 //
 // Canlı veri: randevu/satış sayısı, toplam müşteri, hızlı yanıt rozeti.
+// Kişisel profillerde: beğeniler, takip ettikleri, takipçiler.
 // Sadece rakam gösterilir, tıklanmaz.
 // Gizlilik: bağlantı yoksa "Gizli" gösterilir.
 import 'package:flutter/widgets.dart';
 
 import 'package:hanagram_design/design.dart';
 import '../../../core/profile_service.dart';
+import '../../../core/post_service.dart';
+import '../../../core/verification_service.dart';
 
 class ProfileStats extends StatefulWidget {
   const ProfileStats({
@@ -14,11 +17,15 @@ class ProfileStats extends StatefulWidget {
     required this.targetAuthId,
     required this.isOwner,
     this.isGranted = false,
+    this.isBusiness = true,
+    this.targetDbId,
   });
 
   final String targetAuthId;
   final bool isOwner;
   final bool isGranted;
+  final bool isBusiness;
+  final String? targetDbId;
 
   @override
   State<ProfileStats> createState() => _ProfileStatsState();
@@ -27,6 +34,9 @@ class ProfileStats extends StatefulWidget {
 class _ProfileStatsState extends State<ProfileStats> {
   ProfileStatsData? _stats;
   bool _loading = true;
+  int _likeCount = 0;
+  int _followingCount = 0;
+  int _followerCount = 0;
 
   @override
   void initState() {
@@ -37,7 +47,9 @@ class _ProfileStatsState extends State<ProfileStats> {
   @override
   void didUpdateWidget(covariant ProfileStats oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.targetAuthId != widget.targetAuthId) {
+    if (oldWidget.targetAuthId != widget.targetAuthId ||
+        oldWidget.isBusiness != widget.isBusiness ||
+        oldWidget.targetDbId != widget.targetDbId) {
       _loadStats();
     }
   }
@@ -47,13 +59,31 @@ class _ProfileStatsState extends State<ProfileStats> {
       if (mounted) setState(() => _loading = false);
       return;
     }
-    final stats = await ProfileService.getProfileStats(widget.targetAuthId);
-    if (mounted) {
+
+    if (widget.isBusiness) {
+      final stats = await ProfileService.getProfileStats(widget.targetAuthId);
+      if (!mounted) return;
       setState(() {
         _stats = stats;
         _loading = false;
       });
+      return;
     }
+
+    // Kişisel profil: beğeni / takip / takipçi sayıları
+    final dbId = widget.targetDbId;
+    final results = await Future.wait([
+      dbId == null ? Future<int>.value(0) : PostService.getLikeCountForUser(dbId),
+      VerificationService.getFollowingCount(widget.targetAuthId),
+      VerificationService.getFollowerCount(widget.targetAuthId),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _likeCount = results[0];
+      _followingCount = results[1];
+      _followerCount = results[2];
+      _loading = false;
+    });
   }
 
   @override
@@ -65,6 +95,18 @@ class _ProfileStatsState extends State<ProfileStats> {
       return Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: List.generate(3, (i) => _loadingCell(c)),
+      );
+    }
+
+    // Kişisel profil: beğeni / takip / takipçi — hepsi herkese açık.
+    if (!widget.isBusiness) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _statCell(c, '$_likeCount', 'Beğeniler', true),
+          _statCell(c, '$_followingCount', 'Takip Ettikleri', true),
+          _statCell(c, '$_followerCount', 'Takipçiler', true),
+        ],
       );
     }
 
