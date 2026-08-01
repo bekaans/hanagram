@@ -468,6 +468,14 @@ durumda. Ortak bir pakete taşınmalı — iki kopya er geç ayrışır.
 | 14 | service_sheet.dart (yeni, 176 satır) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
 | 15 | services_screen.dart (yeni, 175 satır) | - | - | - | 1 Ağu | mimo-cheap FAIL (HgThemeData yok) → mimo-pro (2. deneme) |
 | 16 | business_screen.dart: Hizmetler aracı bağlandı | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 17 | verification_service.dart: takipçi/takip sayaçları (followers tablosu) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 18 | post_service.dart: getLikeCountForUser | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 19 | review_service.dart: RatingSummary + getRatingSummary | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 20 | service_media_screen.dart (yeni) | - | - | - | 1 Ağu | mimo-cheap FAIL (HgColorScheme/c.colors uydurdu) → mimo-pro (2. deneme) |
+| 21 | profile_services_list.dart tamamen yeniden yazıldı (sahte→gerçek) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 22 | profile_screen.dart: sekme ayrımı kaldırıldı + yıldız puanı (8 bloklu diff) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 23 | profile_stats.dart: kişisel profil sayaçları | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 24 | profile_screen.dart: ProfileStats yeni parametreleri bağlandı | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
 | 6 | Web build tamamlandı: web_compat + PlatformImage + ffi_stub web bridge | 80K | 5K | 16:1 | 1d |
 
 ## ⚠️ Backend entegrasyon durumu (keşif: 2026-07-29 — Kaan'ın "çalışmıyor" bildirimi üzerine)
@@ -1280,6 +1288,54 @@ hazır ama UI yok) — sadece randevu alma akışında kullanılacağı için o 
 **Doğrulama:** `dart analyze lib` temiz, `flutter build web --release` başarılı,
 `flutter build macos --release` başarılı (57.3MB, gerçek native/FFI yolu).
 iOS/Android gerçek cihaz testi Kaan'da (benim erişimim yok).
+
+---
+
+## 2026-08-01 — Faz B: Profil elden geçirme (7, 8, 13. maddeler)
+
+**🔴 Kritik keşif 3: takip sistemi hiç çalışmıyormuş.** `verification_service.dart`'ın
+`follow()`/`unfollow()` metodları `followers` adlı bir tabloya yazıyordu — **o tablo
+canlıda hiç yoktu**, her çağrı exception fırlatıp `catch (_)` tarafından sessizce
+yutuluyordu. Aynı anda `getFollowerCount()` da hiç var olmayan `users.follower_count`
+kolonunu okuyordu, yani **her zaman 0** dönüyordu. İkisi de sessiz başarısızlıktı.
+`supabase/migrations/20260804_followers.sql` ile tablo kuruldu (canlıya uygulandı,
+doğrulandı), sayaç gerçek tablodan sayacak şekilde düzeltildi, `getFollowingCount`
+eklendi.
+
+**Yapılanlar:**
+- **Madde 7 — hizmetler:** `profile_services_list.dart` tamamen yeniden yazıldı.
+  Artık `ServiceCatalog`'dan GERÇEK veri okuyor; her hizmet tam genişlikte kendi
+  satırında (ad, fiyat, süre, kategori), altında yatay medya şeridi — 10 önizleme +
+  fazlası varsa "+N" hücresi. "+N"e ya da karta dokununca yeni
+  `features/profile/service_media_screen.dart` (3 sütunlu tam ızgara, video rozetli)
+  açılıyor. Medya sorguları hizmet başına paralel (`Future.wait`).
+  **`features/profile/models/service_model.dart` SİLİNDİ** — içindeki hardcoded
+  `sampleCategories` her işletmeye aynı sahte "Lazer Epilasyon/Cilt Bakımı/Saç Bakımı"
+  listesini gösteriyordu.
+- **Madde 8 — yorumlar:** Profil/Yorumlar sekme ayrımı kaldırıldı (TabController,
+  TabBar, TabBarView, SingleTickerProviderStateMixin hepsi temizlendi). Tek kaydırılan
+  sayfa; başlığın altında Google tarzı "⭐ 4,8 · 27 değerlendirme" satırı (yeni
+  `ReviewService.getRatingSummary` + `RatingSummary` modeli), sayıya dokununca
+  `Scrollable.ensureVisible` ile sayfanın altındaki yorumlar bölümüne kayıyor.
+  Hiç değerlendirme yoksa satır GÖSTERİLMİYOR (anlamsız "0,0 · 0" yok).
+- **Madde 13 — kişisel profil:** `ProfileStats` artık `isBusiness` parametresi alıyor.
+  Kişisel profilde **Beğeniler / Takip Ettikleri / Takipçiler** gösteriliyor
+  (yeni `PostService.getLikeCountForUser` + `VerificationService.getFollowingCount`),
+  işletme profilinde mevcut sayaçlar birebir korundu.
+
+**Süreç notu — tekrar eden MiMo hatası ve çözümü:** MiMo iki kez tasarım sistemi
+API'sini uydurdu (`HgThemeData`, `HgColorScheme`, `c.colors` — hiçbiri yok, doğrusu
+`HgColors` ve doğrudan `c.violet` vb.). Çözüm: tasarım sistemi API'sinin tam listesi
+artık HER UI görev paketinin başına eklenen sabit bir referans bloğu. Bu blok
+eklendikten sonra aynı hata bir daha çıkmadı.
+
+**Doğrulama:** `dart analyze lib` temiz, `flutter build web --release` başarılı,
+`flutter build macos --release` başarılı (57.3MB). iOS/Android gerçek cihaz testi
+Kaan'da.
+
+**Not:** `ARKADRAM_DEVIR.md` (başka bir projenin devir dokümanı) depo kökünde
+takipsiz duruyordu, `git add -A` onu commit'e süpürmüştü — takipten çıkarıldı ve
+`.gitignore`'a eklendi, dosya diskte duruyor.
 
 **Açık kalan (küçük, kozmetik):** E-posta gelen kutusu önizleme satırında (istemci listesinde, e-posta
 açılmadan önceki kısa özet) içerik metni görünmüyor — muhtemelen Supabase'in şablon editörünün düz-metin
