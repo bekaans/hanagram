@@ -463,6 +463,11 @@ durumda. Ortak bir pakete taşınmalı — iki kopya er geç ayrışır.
 | 9 | profile_screen.dart: başkasının profilinde geri butonu ekleme | - | - | - | 31 Tem | **Claude-doğrudan (aynı ihlal)** |
 | 10 | app_shell.dart: Keşfet sekmesi kaldırma | - | - | - | 31 Tem | mimo-cheap FAIL (format) → mimo-pro (2. deneme) |
 | 11 | accounting_service.dart: getMonthlyReport'a try/catch (sonsuz yükleme kapı hatası) | - | - | - | 31 Tem | mimo-cheap (1. deneme) |
+| 12 | service_catalog.dart (yeni, 207 satır) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 13 | working_hours_service.dart (yeni, 178 satır) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 14 | service_sheet.dart (yeni, 176 satır) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 15 | services_screen.dart (yeni, 175 satır) | - | - | - | 1 Ağu | mimo-cheap FAIL (HgThemeData yok) → mimo-pro (2. deneme) |
+| 16 | business_screen.dart: Hizmetler aracı bağlandı | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
 | 6 | Web build tamamlandı: web_compat + PlatformImage + ffi_stub web bridge | 80K | 5K | 16:1 | 1d |
 
 ## ⚠️ Backend entegrasyon durumu (keşif: 2026-07-29 — Kaan'ın "çalışmıyor" bildirimi üzerine)
@@ -1227,6 +1232,54 @@ ulaşıyor, doğru marka/biçimle.
   gerçek `<title>Hanagram</title>` ve `main.dart.js` doğru yükleniyor. `www.hanagram.com.tr` → 301 ile
   kök domain'e yönleniyor. `bekaans.github.io/hanagram/` artık kullanılmıyor, kullanıcılar doğrudan
   kendi domaininden giriyor.
+
+---
+
+## 2026-08-01 — Faz A: Hizmetler + randevu altyapısı (şema + veri katmanı + yönetim ekranı)
+
+**Kaan'ın uygulama içi bulgu listesi** (14 madde) 4 faza bölündü. Bu bölüm Faz A'yı
+kapsar; Faz B (profil elden geçirme), Faz C (randevu alma akışı), Faz D (randevu
+yönetimi) sırada.
+
+**🔴 Kritik keşif: hizmetler tamamen sahteydi.** `features/profile/models/service_model.dart`
+içindeki hardcoded `ServiceCategory.sampleCategories` — HER işletme profili aynı
+"Lazer Epilasyon / Cilt Bakımı / Saç Bakımı" listesini aynı sahte fiyatlarla
+gösteriyordu. `services` diye bir tablo hiç yoktu. Bu, projenin "sahte veriye
+düşülmez" temizliğinden sağ çıkmış son büyük ada.
+
+**🔴 Kritik keşif 2: gizli RLS hatası.** `appointments` tek bir `FOR ALL` politikası
+kullanıyordu ve `WITH CHECK (created_by = ben)` diyordu. WITH CHECK, UPDATE'te YENİ
+satıra da uygulandığı için: bir MÜŞTERİ randevu oluşturduğunda (created_by = müşteri),
+İŞLETME o randevuyu ONAYLAYAMIYORDU — UPDATE sessizce reddedilirdi. Bugün fark
+edilmiyordu çünkü randevuları yalnızca işletmeler oluşturuyor; ama randevu alma akışı
+(Faz C) açılır açılmaz tüm özellik çalışmaz hale gelirdi. Ayrı select/insert/update/
+delete politikalarına bölündü — INSERT sıkı kaldı, UPDATE her iki tarafa açıldı.
+
+**Yapılanlar:**
+- `supabase/migrations/20260803_services_and_booking.sql` — `services` +
+  `working_hours` tabloları, `media.service_id`, `appointments`'a `type`
+  ('consultation' = ön görüşme / 'procedure' = işlem), `service_id`,
+  `customer_phone`, `note` kolonları, RLS düzeltmesi. **Supabase CLI ile canlıya
+  uygulandı ve doğrulandı** (tablolar mevcut, kolonlar mevcut, 4 politika aktif) —
+  Kaan'a manuel SQL işi çıkmadı.
+- `core/service_catalog.dart` — `BusinessService` modeli + `ServiceCatalog` CRUD
+  (hizmetler + hizmete bağlı medya sayımı/listesi, "+40 video" göstergesi için).
+- `core/working_hours_service.dart` — `WorkingHours` modeli + haftalık saat CRUD.
+  **Dikkat edilen tuzak:** DB 0=Pazar..6=Cumartesi, Dart `DateTime.weekday`
+  1=Pazartesi..7=Pazar — `dartWeekdayToDb`/`dbWeekdayToDart` çevrimleri elle
+  doğrulandı, yanlış olsa tüm randevular bir gün kayardı ve hata hiçbir yerde
+  görünmezdi.
+- `features/business/service_sheet.dart` + `services_screen.dart` — işletmenin kendi
+  hizmetlerini ekleme/düzenleme/silme ekranı (silmede onay dialogu, boş durumda
+  dürüst EmptyState, sahte örnek hizmet üretilmiyor).
+- `business_screen.dart` — "Hizmetler" aracı panele bağlandı.
+
+**Bilinçli olarak Faz C'ye bırakıldı:** çalışma saatleri YÖNETİM ekranı (veri katmanı
+hazır ama UI yok) — sadece randevu alma akışında kullanılacağı için o fazda anlamlı.
+
+**Doğrulama:** `dart analyze lib` temiz, `flutter build web --release` başarılı,
+`flutter build macos --release` başarılı (57.3MB, gerçek native/FFI yolu).
+iOS/Android gerçek cihaz testi Kaan'da (benim erişimim yok).
 
 **Açık kalan (küçük, kozmetik):** E-posta gelen kutusu önizleme satırında (istemci listesinde, e-posta
 açılmadan önceki kısa özet) içerik metni görünmüyor — muhtemelen Supabase'in şablon editörünün düz-metin
