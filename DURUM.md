@@ -476,6 +476,12 @@ durumda. Ortak bir pakete taşınmalı — iki kopya er geç ayrışır.
 | 22 | profile_screen.dart: sekme ayrımı kaldırıldı + yıldız puanı (8 bloklu diff) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
 | 23 | profile_stats.dart: kişisel profil sayaçları | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
 | 24 | profile_screen.dart: ProfileStats yeni parametreleri bağlandı | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 25 | working_hours_screen.dart (yeni) | - | - | - | 1 Ağu | mimo-cheap FAIL (id zorunlu / activeColor kaldırılmış) → mimo-pro |
+| 26 | appointment_slots.dart (yeni, slot hesabı) | - | - | - | 1 Ağu | mimo-cheap FAIL (isimsiz record .start) → mimo-pro |
+| 27 | booking_service.dart (yeni) | - | - | - | 1 Ağu | mimo-cheap + Claude (tek satır unused import) |
+| 28 | booking_screen.dart (yeni, 323 satır) | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 29 | profile_screen.dart: Randevu butonu gerçek ekrana bağlandı | - | - | - | 1 Ağu | mimo-cheap (1. deneme) |
+| 30 | business_screen.dart: Çalışma Saatleri aracı | - | - | - | 1 Ağu | mimo-cheap FAIL (kartı eklemedi) → mimo-pro |
 | 6 | Web build tamamlandı: web_compat + PlatformImage + ffi_stub web bridge | 80K | 5K | 16:1 | 1d |
 
 ## ⚠️ Backend entegrasyon durumu (keşif: 2026-07-29 — Kaan'ın "çalışmıyor" bildirimi üzerine)
@@ -1336,6 +1342,54 @@ Kaan'da.
 **Not:** `ARKADRAM_DEVIR.md` (başka bir projenin devir dokümanı) depo kökünde
 takipsiz duruyordu, `git add -A` onu commit'e süpürmüştü — takipten çıkarıldı ve
 `.gitignore`'a eklendi, dosya diskte duruyor.
+
+---
+
+## 2026-08-01 — Faz C: Randevu alma akışı (12. madde)
+
+Kaan'ın listesindeki en büyük parça. Müşteri artık gerçekten randevu alabiliyor.
+
+**Kurulan zincir:**
+1. `features/business/working_hours_screen.dart` — işletme haftalık çalışma
+   saatlerini belirliyor (7 gün, Pazartesi→Pazar sırayla; DB'de 0=Pazar olduğu
+   için ekran sırası `[1,2,3,4,5,6,0]`). Kapanış > açılış doğrulaması var.
+   Kaydı olmayan gün için varsayılan EKRANDA gösteriliyor ama kullanıcı
+   dokunmadıkça veritabanına YAZILMIYOR (sahte veri üretmemek için).
+2. `core/appointment_slots.dart` — boş slot hesabı. Çalışma saatlerini alır,
+   o günün dolu randevularını çıkarır, hizmet süresine göre slot üretir.
+3. `core/booking_service.dart` — müşteri tarafı talep oluşturma.
+4. `features/profile/booking_screen.dart` — hizmet seç → gün seç → boş saat seç →
+   telefon (zorunlu) → talep gönder. Adımlar kademeli açılıyor.
+5. Profildeki "Randevu" butonu artık bu ekranı açıyor (önceden "yakında" diyordu).
+6. İşletme paneline "Çalışma Saatleri" aracı eklendi.
+
+**Neden `TaskService.createAppointment` kullanılmadı:** o metod işletme tarafı için
+yazılmış — telefonu randevuya değil `crm_entries`'e yazıyor ve otomatik CRM kaydını
+OLUŞTURANIN hesabına açıyor. Müşteri randevu alsaydı CRM kaydı müşterinin kendi
+hesabına düşerdi (anlamsız). Ayrıca randevu türünü/hizmet bağlantısını hiç set
+etmiyordu. Bu yüzden ayrı `BookingService` yazıldı.
+
+**Elle doğrulanan mantık noktaları** (`dart analyze` mantık hatası yakalamaz):
+- Slot çakışma kuralı KATI eşitsizlik (`isBefore`/`isAfter`) — bitişik randevular
+  (biri 10:00'da biter, diğeri 10:00'da başlar) çakışma sayılmıyor.
+- İptal edilmiş randevular dolu sayılmıyor.
+- Geçmiş saatler SADECE bugün için eleniyor, yarın için elenmiyor.
+- Çalışma saati kaydı yoksa boş liste dönüyor — varsayılan saat UYDURULMUYOR.
+- Telefon 10 hane şartı hem ekranda hem serviste (istemci kontrolüne güvenilmiyor).
+- Kullanıcının mevcut profil telefonu EZİLMİYOR (sadece boşsa yazılıyor).
+- `created_by` daima `myDbId()`'den, parametreden asla.
+
+**Onay bildirimi:** değişiklik GEREKMEDİ — `AppointmentReminder.confirmAppointment`
+zaten "[işletme adı] randevunuzu onayladı" mesajını hem push hem kalıcı kayıt olarak
+gönderiyordu, Kaan'ın istediği davranış birebir mevcuttu.
+
+**Doğrulama:** `dart analyze lib` temiz, `flutter build web --release` başarılı,
+`flutter build macos --release` başarılı (57.9MB).
+
+**Kaan'ın test etmesi gereken sıra:** İşletme panelinde önce **Hizmetler**'e birkaç
+hizmet ekle (ad, fiyat, süre), sonra **Çalışma Saatleri**'ni doldur. Ancak ondan
+sonra başka bir hesaptan o profile girip "Randevu" butonundan gerçek slot görebilir
+ve talep gönderebilirsin.
 
 **Açık kalan (küçük, kozmetik):** E-posta gelen kutusu önizleme satırında (istemci listesinde, e-posta
 açılmadan önceki kısa özet) içerik metni görünmüyor — muhtemelen Supabase'in şablon editörünün düz-metin
