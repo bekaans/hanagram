@@ -7,10 +7,48 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'supabase_service.dart';
 
+/// Bir işletmenin puan özeti — ortalama ve toplam değerlendirme sayısı.
+class RatingSummary {
+  const RatingSummary({this.average = 0, this.count = 0});
+
+  final double average;
+  final int count;
+
+  bool get hasRatings => count > 0;
+
+  /// Türkçe biçimde ortalama: 4.75 -> "4,8" (virgüllü, tek ondalık).
+  String get averageLabel => average.toStringAsFixed(1).replaceAll('.', ',');
+}
+
 class ReviewService {
   ReviewService._();
 
   static SupabaseClient get _db => SupabaseService.client;
+
+  /// İşletmenin ortalama puanı ve toplam değerlendirme sayısı.
+  /// [businessId] `users.id`'dir (auth id DEĞİL).
+  static Future<RatingSummary> getRatingSummary(String businessId) async {
+    try {
+      final result = await _db
+          .from('reviews')
+          .select('rating')
+          .eq('business_id', businessId);
+
+      final rows = result as List;
+      if (rows.isEmpty) return const RatingSummary();
+
+      var total = 0;
+      for (final r in rows) {
+        total += ((r as Map)['rating'] as num?)?.toInt() ?? 0;
+      }
+      return RatingSummary(
+        average: total / rows.length,
+        count: rows.length,
+      );
+    } catch (_) {
+      return const RatingSummary();
+    }
+  }
 
   /// Bir işletmenin aldığı yorumları getir (varsayılan: kendi işletmen).
   static Future<List<Map<String, dynamic>>> getReviews({

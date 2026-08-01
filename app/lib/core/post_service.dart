@@ -230,6 +230,26 @@ class PostService {
     }
   }
 
+  /// Verilen kullanıcının gönderilerine gelen toplam beğeni sayısı.
+  /// [userId] `users.id`'dir (auth id DEĞİL).
+  static Future<int> getLikeCountForUser(String userId) async {
+    try {
+      final posts =
+          await _db.from('posts').select('id').eq('author_id', userId);
+      final postIds =
+          (posts as List).map((p) => (p as Map)['id'] as String).toList();
+      if (postIds.isEmpty) return 0;
+
+      final likes = await _db
+          .from('post_likes')
+          .select('post_id')
+          .inFilter('post_id', postIds);
+      return (likes as List).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   static Future<bool> addComment(String postId, String content) async {
     try {
       final myId = await SupabaseService.myDbId();

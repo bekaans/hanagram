@@ -326,15 +326,41 @@ class VerificationService {
     }
   }
 
-  /// Takipçi sayısını getir (users tablosundaki cache'den).
+  /// Takipçi sayısını getir (followers tablosundan).
   static Future<int> getFollowerCount(String authId) async {
     try {
-      final result = await _db
+      final row = await _db
           .from('users')
-          .select('follower_count')
+          .select('id')
           .eq('auth_id', authId)
           .maybeSingle();
-      return (result?['follower_count'] as int?) ?? 0;
+      final dbId = row?['id'] as String?;
+      if (dbId == null) return 0;
+      final result = await _db
+          .from('followers')
+          .select('follower_id')
+          .eq('following_id', dbId);
+      return (result as List).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Kişinin takip ettiği kişi sayısı (followers.follower_id = kendisi).
+  static Future<int> getFollowingCount(String authId) async {
+    try {
+      final row = await _db
+          .from('users')
+          .select('id')
+          .eq('auth_id', authId)
+          .maybeSingle();
+      final dbId = row?['id'] as String?;
+      if (dbId == null) return 0;
+      final result = await _db
+          .from('followers')
+          .select('following_id')
+          .eq('follower_id', dbId);
+      return (result as List).length;
     } catch (_) {
       return 0;
     }
