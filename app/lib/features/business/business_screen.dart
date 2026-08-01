@@ -16,6 +16,7 @@ import 'calendar_view.dart';
 import 'customer_screen.dart';
 import 'product_screen.dart';
 import 'services_screen.dart';
+import 'working_hours_screen.dart';
 import 'media_screen.dart';
 import 'sale_screen.dart';
 import 'task_screen.dart';
@@ -185,6 +186,15 @@ class _BusinessScreenState extends State<BusinessScreen> {
             ready: true,
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const ServicesScreen()),
+            ),
+          ),
+          _Tool(
+            icon: CupertinoIcons.clock,
+            title: 'Çalışma Saatleri',
+            desc: 'Müşterilerin randevu alabileceği saatleri belirle',
+            ready: true,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const WorkingHoursScreen()),
             ),
           ),
           _Tool(

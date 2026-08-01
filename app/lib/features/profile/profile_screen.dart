@@ -19,6 +19,7 @@ import '../../core/utils.dart';
 import 'package:hanagram_design/design.dart';
 import '../settings/settings_screen.dart';
 import '../messages/chat_detail_screen.dart';
+import 'booking_screen.dart';
 import 'widgets/profile_header.dart';
 import 'widgets/profile_stats.dart';
 import 'widgets/profile_actions.dart';
@@ -376,12 +377,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
         break;
       case 'appointment':
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Randevu alma ekranı yakında!')),
-        );
+        _openBooking();
         break;
     }
+  }
+
+  /// Randevu alma ekranını açar. Kendi profilinde randevu alınamaz.
+  void _openBooking() {
+    if (_isOwn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kendi işletmene randevu alamazsın.')),
+      );
+      return;
+    }
+    final targetId = _targetDbId;
+    if (targetId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<bool>(
+        builder: (_) => BookingScreen(
+          businessId: targetId,
+          businessName: _targetName,
+        ),
+      ),
+    );
   }
 
   Future<void> _openDm() async {
