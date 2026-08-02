@@ -113,6 +113,10 @@ class Appointment {
     this.endTime,
     this.status = 'pending',
     this.attendeeName = '',
+    this.type = 'procedure',
+    this.serviceId,
+    this.customerPhone = '',
+    this.note = '',
   });
 
   final String id;
@@ -127,6 +131,21 @@ class Appointment {
   final String status;
   final String attendeeName;
 
+  /// 'consultation' = ön görüşme (müşterinin talep ettiği), 'procedure' = işlem.
+  final String type;
+
+  /// Hangi hizmete ait olduğu (services.id) — null olabilir.
+  final String? serviceId;
+
+  /// Müşterinin randevu sırasında bıraktığı telefon.
+  final String customerPhone;
+
+  /// Randevu notu.
+  final String note;
+
+  /// Bu bir ön görüşme randevusu mu?
+  bool get isConsultation => type == 'consultation';
+
   factory Appointment.fromJson(Map<String, dynamic> j) => Appointment(
         id: j['id'] as String? ?? '',
         title: j['title'] as String? ?? '',
@@ -139,6 +158,10 @@ class Appointment {
         endTime: j['end_time'] as String?,
         status: j['status'] as String? ?? 'pending',
         attendeeName: j['attendee_name'] as String? ?? '',
+        type: j['type'] as String? ?? 'procedure',
+        serviceId: j['service_id'] as String?,
+        customerPhone: j['customer_phone'] as String? ?? '',
+        note: j['note'] as String? ?? '',
       );
 }
 

@@ -17,6 +17,7 @@ class _CalendarViewState extends State<CalendarView> {
   DateTime _selectedDate = DateTime.now();
   List<TaskItem> _tasks = [];
   List<Appointment> _appointments = [];
+  DateTimeRange? _range;
   bool _loading = true;
 
   @override
@@ -38,6 +39,31 @@ class _CalendarViewState extends State<CalendarView> {
     }
   }
 
+  /// Seçili tarih aralığındaki tüm günlerin görev ve randevularını toplar.
+  Future<void> _loadRange() async {
+    final r = _range;
+    if (r == null) return;
+    setState(() => _loading = true);
+    final tasks = <TaskItem>[];
+    final appts = <Appointment>[];
+    var day = DateTime(r.start.year, r.start.month, r.start.day);
+    final last = DateTime(r.end.year, r.end.month, r.end.day);
+    // Aşırı geniş aralıkta ekranı kilitlememek için üst sınır
+    var guard = 0;
+    while (!day.isAfter(last) && guard < 62) {
+      tasks.addAll(await TaskService.getTasksForDate(day));
+      appts.addAll(await TaskService.getAppointmentsForDate(day));
+      day = day.add(const Duration(days: 1));
+      guard++;
+    }
+    if (!mounted) return;
+    setState(() {
+      _tasks = tasks;
+      _appointments = appts;
+      _loading = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = HgTheme.of(context);
@@ -53,24 +79,35 @@ class _CalendarViewState extends State<CalendarView> {
       ),
       body: Column(
         children: [
-          _buildWeekBar(c),
-          const SizedBox(height: HgSpace.md),
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _buildDayContent(c),
+            child: ListView(
+              children: [
+                _buildMonthGrid(c),
+                const SizedBox(height: HgSpace.md),
+                _loading
+                    ? const Padding(
+                        padding: EdgeInsets.all(HgSpace.xl),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : _buildDayContent(c),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ─── Haftalık üst bar ───
+  // ─── Aylık ızgara ───
 
-  Widget _buildWeekBar(HgColors c) {
+  Widget _buildMonthGrid(HgColors c) {
     final now = DateTime.now();
-    final startOfWeek =
-        _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+    final first = DateTime(_selectedDate.year, _selectedDate.month, 1);
+    // Ayın son günü: bir sonraki ayın 0. günü
+    final daysInMonth =
+        DateTime(_selectedDate.year, _selectedDate.month + 1, 0).day;
+    // Pazartesi=1 … Pazar=7 → ızgarada kaç boş hücre bırakılacağı
+    final leading = first.weekday - 1;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: HgSpace.lg),
@@ -82,8 +119,8 @@ class _CalendarViewState extends State<CalendarView> {
                 icon: Icon(Icons.chevron_left, color: c.text),
                 onPressed: () {
                   setState(() {
-                    _selectedDate =
-                        _selectedDate.subtract(const Duration(days: 7));
+                    _selectedDate = DateTime(
+                        _selectedDate.year, _selectedDate.month - 1, 1);
                   });
                   _loadDay();
                 },
@@ -98,8 +135,8 @@ class _CalendarViewState extends State<CalendarView> {
                 icon: Icon(Icons.chevron_right, color: c.text),
                 onPressed: () {
                   setState(() {
-                    _selectedDate =
-                        _selectedDate.add(const Duration(days: 7));
+                    _selectedDate = DateTime(
+                        _selectedDate.year, _selectedDate.month + 1, 1);
                   });
                   _loadDay();
                 },
@@ -107,9 +144,37 @@ class _CalendarViewState extends State<CalendarView> {
             ],
           ),
           const SizedBox(height: HgSpace.sm),
+          // Gün adı başlıkları — Pazartesi'den Pazar'a
           Row(
-            children: List.generate(7, (i) {
-              final day = startOfWeek.add(Duration(days: i));
+            children: [
+              for (var i = 1; i <= 7; i++)
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      _dayNameShort(i),
+                      style: HgText.caption
+                          .copyWith(color: c.textMuted, fontSize: 10),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 2,
+              crossAxisSpacing: 2,
+              childAspectRatio: 1.1,
+            ),
+            itemCount: leading + daysInMonth,
+            itemBuilder: (context, index) {
+              if (index < leading) return const SizedBox.shrink();
+              final dayNum = index - leading + 1;
+              final day =
+                  DateTime(_selectedDate.year, _selectedDate.month, dayNum);
               final isToday = day.year == now.year &&
                   day.month == now.month &&
                   day.day == now.day;
@@ -117,48 +182,120 @@ class _CalendarViewState extends State<CalendarView> {
                   day.month == _selectedDate.month &&
                   day.day == _selectedDate.day;
 
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() => _selectedDate = day);
-                    _loadDay();
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? c.violet
-                          : isToday
-                              ? c.violet.withValues(alpha: 0.12)
-                              : Colors.transparent,
-                      borderRadius:
-                          BorderRadius.circular(HgRadius.md),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(_dayNameShort(day.weekday),
-                            style: HgText.caption.copyWith(
-                                color: isSelected
-                                    ? c.onBrand
-                                    : c.textMuted,
-                                fontSize: 10)),
-                        const SizedBox(height: 4),
-                        Text('${day.day}',
-                            style: HgText.bodyStrong.copyWith(
-                                color: isSelected
-                                    ? c.onBrand
-                                    : c.text)),
-                      ],
+              return GestureDetector(
+                onTap: () {
+                  setState(() => _selectedDate = day);
+                  _loadDay();
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? c.violet
+                        : isToday
+                            ? c.violet.withValues(alpha: 0.12)
+                            : Colors.transparent,
+                    borderRadius: BorderRadius.circular(HgRadius.sm),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$dayNum',
+                      style: HgText.body.copyWith(
+                        color: isSelected ? c.onBrand : c.text,
+                        fontWeight:
+                            isToday ? FontWeight.w700 : FontWeight.w400,
+                      ),
                     ),
                   ),
                 ),
               );
-            }),
+            },
           ),
+          const SizedBox(height: HgSpace.sm),
+          // Özel tarih / aralık seçimi
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _pickSingleDate,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: HgSpace.sm),
+                    decoration: BoxDecoration(
+                      color: c.surfaceAlt,
+                      borderRadius: BorderRadius.circular(HgRadius.sm),
+                    ),
+                    child: Center(
+                      child: Text('Tarih seç',
+                          style: HgText.caption.copyWith(color: c.violet)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: HgSpace.sm),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _pickDateRange,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: HgSpace.sm),
+                    decoration: BoxDecoration(
+                      color: c.surfaceAlt,
+                      borderRadius: BorderRadius.circular(HgRadius.sm),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _range == null ? 'Tarih aralığı' : 'Aralığı temizle',
+                        style: HgText.caption.copyWith(color: c.violet),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_range != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${_range!.start.day}.${_range!.start.month} — ${_range!.end.day}.${_range!.end.month} arası gösteriliyor',
+              style: HgText.caption.copyWith(color: c.textMuted),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  /// Tek gün seçici.
+  Future<void> _pickSingleDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(DateTime.now().year - 2),
+      lastDate: DateTime(DateTime.now().year + 2),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _selectedDate = picked;
+      _range = null;
+    });
+    _loadDay();
+  }
+
+  /// Tarih aralığı seçici — doluysa temizler.
+  Future<void> _pickDateRange() async {
+    if (_range != null) {
+      setState(() => _range = null);
+      _loadDay();
+      return;
+    }
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(DateTime.now().year - 2),
+      lastDate: DateTime(DateTime.now().year + 2),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _range = picked);
+    _loadRange();
   }
 
   // ─── Günün içeriği ───

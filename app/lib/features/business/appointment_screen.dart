@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/appointment_reminder.dart';
 import '../../core/task_service.dart';
+import '../../core/crm_service.dart';
 import 'package:hanagram_design/design.dart';
 import '../settings/settings_provider.dart';
 
@@ -75,6 +76,93 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
         });
       }
     }
+  }
+
+  /// Randevuyu tamamlar VE aynı anda satış kaydı oluşturur.
+  /// Tutar kullanıcıdan sorulur (randevuda fiyat bilgisi tutulmuyor).
+  Future<void> _completeAsSale(Appointment a) async {
+    final amountCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final c = HgTheme.of(ctx);
+        return AlertDialog(
+          title: const Text('Satış olarak ekle'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                a.title,
+                style: HgText.caption.copyWith(color: c.textMuted),
+              ),
+              const SizedBox(height: HgSpace.md),
+              TextField(
+                controller: amountCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Tutar (₺)',
+                  hintText: '0,00',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Kaydet'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      amountCtrl.dispose();
+      return;
+    }
+
+    final parsed =
+        double.tryParse(amountCtrl.text.replaceAll(',', '.')) ?? 0;
+    final kurus = (parsed * 100).round();
+    amountCtrl.dispose();
+
+    if (!mounted) return;
+    if (kurus <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Geçerli bir tutar gir.')),
+      );
+      return;
+    }
+
+    final saleId = await CrmService.createSale(
+      items: [
+        {'name': a.title, 'price': kurus, 'qty': 1},
+      ],
+      customerName: a.attendeeName,
+      note: 'Randevudan oluşturuldu',
+    );
+    if (!mounted) return;
+
+    if (saleId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Satış kaydedilemedi, tekrar dene.')),
+      );
+      return;
+    }
+
+    // Satış kaydedildikten SONRA randevuyu tamamla
+    await _handleStatusChange(a.id, 'completed');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Satış kaydedildi ve randevu tamamlandı.')),
+    );
   }
 
   Future<void> _handleStatusChange(String id, String action) async {
@@ -425,6 +513,63 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
               ),
             ],
           ),
+          // Ön görüşme rozeti
+          if (a.isConsultation) ...[
+            const SizedBox(height: HgSpace.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: HgSpace.sm, vertical: 2),
+                decoration: BoxDecoration(
+                  color: c.blue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(HgRadius.sm),
+                ),
+                child: Text(
+                  'Ön görüşme',
+                  style: HgText.caption
+                      .copyWith(color: c.blue, shadows: null),
+                ),
+              ),
+            ),
+          ],
+
+          // Müşteri telefonu
+          if (a.customerPhone.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.phone_outlined, size: 13, color: c.textFaint),
+                const SizedBox(width: 4),
+                Text(
+                  a.customerPhone,
+                  style: HgText.caption
+                      .copyWith(color: c.textMuted, shadows: null),
+                ),
+              ],
+            ),
+          ],
+
+          // Randevu notu
+          if (a.note.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(HgSpace.sm),
+              decoration: BoxDecoration(
+                color: c.surfaceAlt.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(HgRadius.sm),
+              ),
+              child: Text(
+                a.note,
+                style: HgText.caption
+                    .copyWith(color: c.textMuted, shadows: null),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+
           if (canAct) ...[
             const SizedBox(height: HgSpace.sm),
             Row(
@@ -442,6 +587,12 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                     onTap: () => _handleStatusChange(a.id, 'cancelled'),
                   ),
                 ] else if (a.status == 'confirmed') ...[
+                  _StatusButton(
+                    label: 'Satış olarak ekle',
+                    color: c.violet,
+                    onTap: () => _completeAsSale(a),
+                  ),
+                  const SizedBox(width: HgSpace.sm),
                   _StatusButton(
                     label: 'Tamamlandı',
                     color: c.success,
