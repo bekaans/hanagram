@@ -1413,11 +1413,20 @@ zaten `select('*')` ile bunları ÇEKİYORDU ama model düşürüyordu. Eklendi.
 Kartlarda artık **"Ön görüşme" rozeti**, **müşteri telefonu** ve **randevu notu**
 görünüyor.
 
-**Not — 11. maddenin yorumu:** Kaan'ın tarifi ("10 işlem var, yarın 4 randevu var,
-10 işlemde yazacak") hizmete göre gruplama olarak da okunabilirdi. Şu an yapılan:
-randevu kartı hangi türde olduğunu, müşterinin telefonunu ve notunu gösteriyor.
-Tam hizmet-bazlı gruplama (her hizmet başlık, altında o günün randevuları)
-istenirse ayrıca yapılabilir — Kaan'ın onayına açık.
+**Madde 11 — hizmet bazlı gruplama TAMAMLANDI:** Kaan doğruladı, gruplama
+istiyordu. Günlük liste artık işletmenin HER hizmetini başlık olarak gösteriyor
+(yanında o günkü randevu sayısı rozeti), altında o hizmete ait randevular.
+Randevusu olmayan hizmet "Bu gün randevu yok" diyor — gizlenmiyor.
+İki koruma: (1) hiç hizmet tanımlamamış işletme düz listeye düşüyor, yoksa
+bomboş ekran görürdü; (2) `service_id`'si olmayan randevular — ki mevcut TÜM
+eski randevular böyle — "Hizmet belirtilmemiş" grubunda görünüyor, kaybolmuyor.
+
+**Süreç notu:** Bu değişikliği MiMo üç denemede de yapamadı — 3-4 bloklu
+diff'lerde ilk bloğu uygulayıp kalanları düşürme deseni tekrarlandı (aynı davranış
+`business_screen.dart`'a araç eklerken de görülmüştü). Merdiven kuralı gereği
+Claude devraldı; hedef kod zaten görev paketinde satır satır yazılı olduğu için
+mekanik bir uygulamaydı. **Çıkarılan ders:** MiMo'ya 2 bloktan fazla diff
+verilmemeli — 3+ değişiklik gerekiyorsa ayrı delegasyonlara bölünmeli.
 
 **Doğrulama:** `dart analyze lib` temiz, `flutter build web --release` başarılı,
 `flutter build macos --release` başarılı (58.3MB).
