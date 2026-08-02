@@ -324,6 +324,8 @@ class _InviteGateState extends State<InviteGate> {
       final res = await SupabaseService.client.auth.verifyOTP(
         token: otp,
         type: _isEmail ? sup.OtpType.email : sup.OtpType.sms,
+        email: _isEmail ? _emailCtrl.text.trim() : null,
+        phone: _isEmail ? null : _phoneCtrl.text.trim(),
       );
 
       if (res.session != null) {
