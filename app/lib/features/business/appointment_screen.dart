@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../core/appointment_reminder.dart';
 import '../../core/task_service.dart';
 import '../../core/crm_service.dart';
+import '../../core/service_catalog.dart';
 import 'package:hanagram_design/design.dart';
 import '../settings/settings_provider.dart';
 
@@ -21,6 +22,7 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
   DateTime _selectedDate = DateTime.now();
   List<Appointment> _appointments = [];
   bool _isLoading = true;
+  List<BusinessService> _services = const [];
 
   // Arama
   final _searchCtrl = TextEditingController();
@@ -42,13 +44,16 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
 
   Future<void> _loadAppointments() async {
     setState(() => _isLoading = true);
-    final items = await TaskService.getAppointmentsForDate(_selectedDate);
-    if (mounted) {
-      setState(() {
-        _appointments = items;
-        _isLoading = false;
-      });
-    }
+    final results = await Future.wait([
+      TaskService.getAppointmentsForDate(_selectedDate),
+      ServiceCatalog.getMyServices(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _appointments = results[0] as List<Appointment>;
+      _services = results[1] as List<BusinessService>;
+      _isLoading = false;
+    });
   }
 
   Future<void> _searchAppointments(String query) async {
@@ -328,23 +333,97 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_appointments.isEmpty) {
-      return const EmptyState(
-        icon: Icons.event_busy,
-        title: 'Bu gün için randevu yok',
-        message: 'Yeni randevu eklemek için + butonuna dokunun.',
+    // Hiç hizmet tanımlanmamışsa gruplama anlamsız — düz liste göster.
+    if (_services.isEmpty) {
+      if (_appointments.isEmpty) {
+        return const EmptyState(
+          icon: Icons.event_busy,
+          title: 'Bu gün için randevu yok',
+          message: 'Yeni randevu eklemek için + butonuna dokunun.',
+        );
+      }
+      return RefreshIndicator(
+        onRefresh: _loadAppointments,
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(
+              HgSpace.lg, HgSpace.xs, HgSpace.lg, 96),
+          itemCount: _appointments.length,
+          itemBuilder: (context, index) =>
+              _appointmentCard(c, _appointments[index]),
+        ),
       );
     }
+
+    // Randevuları hizmete göre grupla
+    final byService = <String, List<Appointment>>{};
+    final unassigned = <Appointment>[];
+    for (final a in _appointments) {
+      final sid = a.serviceId;
+      if (sid == null || sid.isEmpty) {
+        unassigned.add(a);
+      } else {
+        byService.putIfAbsent(sid, () => []).add(a);
+      }
+    }
+
     return RefreshIndicator(
       onRefresh: _loadAppointments,
-      child: ListView.builder(
+      child: ListView(
         padding: const EdgeInsets.fromLTRB(
             HgSpace.lg, HgSpace.xs, HgSpace.lg, 96),
-        itemCount: _appointments.length,
-        itemBuilder: (context, index) {
-          final a = _appointments[index];
-          return _appointmentCard(c, a);
-        },
+        children: [
+          for (final s in _services) ...[
+            _serviceHeader(c, s.name, byService[s.id]?.length ?? 0),
+            if ((byService[s.id] ?? const []).isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(
+                    left: HgSpace.sm, bottom: HgSpace.md),
+                child: Text(
+                  'Bu gün randevu yok',
+                  style: HgText.caption
+                      .copyWith(color: c.textFaint, shadows: null),
+                ),
+              )
+            else
+              for (final a in byService[s.id]!) _appointmentCard(c, a),
+          ],
+          if (unassigned.isNotEmpty) ...[
+            _serviceHeader(c, 'Hizmet belirtilmemiş', unassigned.length),
+            for (final a in unassigned) _appointmentCard(c, a),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Hizmet grubu başlığı — ad + o günkü randevu sayısı.
+  Widget _serviceHeader(HgColors c, String name, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(top: HgSpace.md, bottom: HgSpace.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              name,
+              style: HgText.heading.copyWith(color: c.text, shadows: null),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (count > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: HgSpace.sm, vertical: 2),
+              decoration: BoxDecoration(
+                color: c.violet.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(HgRadius.pill),
+              ),
+              child: Text(
+                '$count',
+                style: HgText.caption.copyWith(color: c.violet, shadows: null),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -757,9 +836,9 @@ class _AppointmentAddSheetState extends State<_AppointmentAddSheet> {
               const SizedBox(height: HgSpace.xl),
               SizedBox(
                 width: double.infinity,
-                child: BrandButton(
+                child: HgButton(
                   label: _sending ? 'Oluşturuluyor…' : 'Randevu Oluştur',
-                  icon: _sending ? null : Icons.check,
+                  loading: _sending,
                   onPressed: _sending || _titleCtrl.text.trim().isEmpty
                       ? null
                       : _submit,
