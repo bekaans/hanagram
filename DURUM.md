@@ -1391,6 +1391,37 @@ hizmet ekle (ad, fiyat, süre), sonra **Çalışma Saatleri**'ni doldur. Ancak o
 sonra başka bir hesaptan o profile girip "Randevu" butonundan gerçek slot görebilir
 ve talep gönderebilirsin.
 
+---
+
+## 2026-08-02 — Faz D: Randevu yönetimi (9, 10, 11. maddeler)
+
+**Madde 9 — aylık takvim:** `calendar_view.dart` sadece 7 günlük şerit
+gösteriyordu, tam aylık ızgaraya çevrildi (Pazartesi→Pazar, ayın ilk gününün
+haftagününe göre doğru boş hücre kayması). Ayrıca **tek tarih** ve **tarih
+aralığı** seçiciler eklendi. Aralık yüklemesi 62 günle sınırlı — kullanıcı
+5 yıllık aralık seçerse ekran kilitlenmesin diye.
+
+**Madde 10 — satış entegrasyonu:** Onaylanmış randevuda artık "Tamamlandı"nın
+yanında **"Satış olarak ekle"** var. Tutar sorulup `CrmService.createSale` ile
+satış oluşturuluyor, SONRA randevu tamamlanıyor. **Sıra bilinçli:** önce satış,
+sonra durum — tersi olsaydı satış başarısız olduğunda randevu kapanır ama gelir
+kaydı oluşmazdı (para kaybolurdu).
+
+**Madde 11 — randevu kartı zenginleştirildi:** `Appointment` modeli
+`type`/`service_id`/`customer_phone`/`note` alanlarını ayrıştırmıyordu — sorgu
+zaten `select('*')` ile bunları ÇEKİYORDU ama model düşürüyordu. Eklendi.
+Kartlarda artık **"Ön görüşme" rozeti**, **müşteri telefonu** ve **randevu notu**
+görünüyor.
+
+**Not — 11. maddenin yorumu:** Kaan'ın tarifi ("10 işlem var, yarın 4 randevu var,
+10 işlemde yazacak") hizmete göre gruplama olarak da okunabilirdi. Şu an yapılan:
+randevu kartı hangi türde olduğunu, müşterinin telefonunu ve notunu gösteriyor.
+Tam hizmet-bazlı gruplama (her hizmet başlık, altında o günün randevuları)
+istenirse ayrıca yapılabilir — Kaan'ın onayına açık.
+
+**Doğrulama:** `dart analyze lib` temiz, `flutter build web --release` başarılı,
+`flutter build macos --release` başarılı (58.3MB).
+
 **Açık kalan (küçük, kozmetik):** E-posta gelen kutusu önizleme satırında (istemci listesinde, e-posta
 açılmadan önceki kısa özet) içerik metni görünmüyor — muhtemelen Supabase'in şablon editörünün düz-metin
 (text/plain) alternatifini ayrıca kontrol etmeye izin vermemesinden kaynaklanıyor, bizim tarafımızdan
